@@ -1,15 +1,20 @@
-// ConfidenceBadge component — displays a confidence score (0–1) as a colored pill.
-// TODO: implement color thresholds and animated fill
-
 interface ConfidenceBadgeProps {
-  score?: number; // 0.0 – 1.0
-  label?: string;
+  score: number; // 0 - 100
 }
 
-export default function ConfidenceBadge({ score = 0, label }: ConfidenceBadgeProps) {
+export default function ConfidenceBadge({ score }: ConfidenceBadgeProps) {
+  let badgeColor = "bg-red-50 text-red-700 border-red-200";
+  if (score >= 85) {
+    badgeColor = "bg-green-50 text-green-700 border-green-200";
+  } else if (score >= 60) {
+    badgeColor = "bg-amber-50 text-amber-700 border-amber-200";
+  }
+
   return (
-    <span className="inline-block rounded-full px-3 py-1 text-xs font-medium bg-gray-100 text-gray-700">
-      {label ?? `${Math.round(score * 100)}%`}
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${badgeColor}`}
+    >
+      {score}%
     </span>
   );
 }

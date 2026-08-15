@@ -133,7 +133,7 @@ export interface ValidationFlag {
    * - "error"   → violates a hard constraint; product cannot be published.
    * - "warning" → suspicious but recoverable; human review recommended.
    */
-  severity: "error" | "warning";
+  severity: "error" | "warning" | "missing";
   /** Human-readable explanation of the problem. */
   message: string;
 }

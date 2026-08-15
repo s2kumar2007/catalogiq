@@ -1,12 +1,297 @@
+/**
+ * app/api/process-product/route.ts
+ * Main Orchestrator — CatalogIQ
+ *
+ * Single entry point for the full pipeline:
+ *   1. Extract   → Gemini (lib/agents/extract.ts)
+ *   2. Validate  → Groq   (lib/agents/validate.ts)  [skipped if schema_match = "none"]
+ *
+ * Accepts multipart/form-data (from the upload page) OR application/json.
+ *
+ * FormData fields:    text?, file?, category?
+ * JSON body fields:   rawText?, fileContent?, categoryHint?
+ *
+ * Response:
+ * {
+ *   schema_match:       string,
+ *   extracted_fields:   Record<string, ExtractedField>,
+ *   extraction_notes:   string,
+ *   validation_result:  ValidationResultExtended | null,
+ *   is_unverified:      boolean,   // true when schema_match = "none"
+ *   pipeline_warnings:  string[]   // non-fatal issues (e.g. validation failed but extraction OK)
+ * }
+ */
+
 import { NextRequest, NextResponse } from "next/server";
+import { runExtraction }             from "@/lib/agents/extract";
+import { runValidation }             from "@/lib/agents/validate";
+import { runGapResolution }          from "@/lib/agents/gap-resolve";
+import { runReconciliation }         from "@/lib/agents/reconcile";
+import type { SchemaCategory, ExtractedField } from "@/lib/types";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+type KnownCategory = "fasteners" | "electrical_connectors";
+const KNOWN_CATEGORIES: KnownCategory[] = ["fasteners", "electrical_connectors"];
+
+function isKnownCategory(s: string): s is KnownCategory {
+  return KNOWN_CATEGORIES.includes(s as KnownCategory);
+}
+
+interface SourcePayload {
+  source_name: string;
+  source_type: "manufacturer_pdf" | "ecommerce_listing" | "scraped_page";
+  raw_text: string;
+}
 
 /**
- * POST /api/process-product
- * Main orchestrator: receives a product spec, fans out to extraction,
- * validation, reconciliation, and gap-resolution agents, then returns
- * the unified product intelligence result.
+ * Reads the request body regardless of whether it arrives as
+ * multipart/form-data (upload page) or application/json (API callers).
  */
-export async function POST(req: NextRequest) {
-  // TODO: implement orchestration logic
-  return NextResponse.json({ message: "process-product stub" }, { status: 200 });
+async function parseRequest(req: NextRequest): Promise<{
+  rawText?: string;
+  imageBase64?: string;
+  categoryHint: "fasteners" | "electrical_connectors" | "auto";
+  sources?: SourcePayload[];
+}> {
+  const contentType = req.headers.get("content-type") ?? "";
+
+  // ── FormData (from the upload page) ────────────────────────────────────
+  if (contentType.includes("multipart/form-data")) {
+    const form = await req.formData();
+
+    const textField     = form.get("text");
+    const categoryField = form.get("category");
+    const fileField     = form.get("file");
+
+    let rawText: string | undefined = undefined;
+    let imageBase64: string | undefined = undefined;
+
+    // Text input
+    if (typeof textField === "string" && textField.trim()) {
+      rawText = textField.trim();
+    }
+
+    // File input
+    if (fileField instanceof File) {
+      const mimeType = fileField.type;
+
+      if (mimeType.startsWith("image/")) {
+        // Convert to base64 data URL for Gemini multimodal
+        const arrayBuffer = await fileField.arrayBuffer();
+        const base64 = Buffer.from(arrayBuffer).toString("base64");
+        imageBase64 = `data:${mimeType};base64,${base64}`;
+      } else {
+        // Plain text / PDF: read as text
+        rawText = await fileField.text();
+      }
+    }
+
+    const rawCategory = typeof categoryField === "string" ? categoryField : "auto";
+    const categoryHint =
+      rawCategory === "fasteners" || rawCategory === "electrical_connectors"
+        ? rawCategory
+        : "auto";
+
+    return { rawText, imageBase64, categoryHint };
+  }
+
+  // ── JSON body (API callers, tests) ──────────────────────────────────────
+  const body: {
+    rawText?: string;
+    fileContent?: string;
+    categoryHint?: string;
+    sources?: SourcePayload[];
+  } = await req.json();
+
+  const categoryHint =
+    body.categoryHint === "fasteners" || body.categoryHint === "electrical_connectors"
+      ? body.categoryHint
+      : "auto";
+
+  return {
+    rawText: body.rawText ?? body.fileContent,
+    categoryHint,
+    sources: body.sources,
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Route handler
+// ---------------------------------------------------------------------------
+
+export async function POST(req: NextRequest) {
+  const pipelineWarnings: string[] = [];
+
+  // ── 1. Parse request ──────────────────────────────────────────────────────
+  let rawText: string | undefined;
+  let imageBase64: string | undefined;
+  let categoryHint: "fasteners" | "electrical_connectors" | "auto";
+  let sources: SourcePayload[] | undefined;
+
+  try {
+    ({ rawText, imageBase64, categoryHint, sources } = await parseRequest(req));
+  } catch (err) {
+    return NextResponse.json(
+      { error: `Failed to parse request: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 400 }
+    );
+  }
+
+  const isMultiSource = sources && Array.isArray(sources) && sources.length > 0;
+
+  if (!rawText && !imageBase64 && !isMultiSource) {
+    return NextResponse.json(
+      { error: "No content provided. Send text, fileContent, a file upload, or sources." },
+      { status: 400 }
+    );
+  }
+
+  let finalExtractedFields: Record<string, ExtractedField> = {};
+  let finalNotes = "";
+  let resolvedCategory: SchemaCategory = "none";
+  let reconciliationResult = null;
+
+  // ── 2. Extraction & Optional Reconciliation ──────────────────────────────
+  if (isMultiSource && sources) {
+    try {
+      // Parallel extraction calls for speed
+      const extractionPromises = sources.map(async (src) => {
+        const ext = await runExtraction({
+          rawText: src.raw_text,
+          category: categoryHint,
+        });
+        return {
+          source_name: src.source_name,
+          source_type: src.source_type,
+          extraction_result: ext,
+        };
+      });
+
+      const extractedSources = await Promise.all(extractionPromises);
+
+      // Perform source reconciliation
+      const runReconciliationResult = await runReconciliation(extractedSources);
+      reconciliationResult = runReconciliationResult;
+
+      // Extract resolved category from first successful match, or fallback
+      const matchedCategories = extractedSources
+        .map((s) => s.extraction_result.schema_match)
+        .filter((c) => c !== "none");
+      resolvedCategory = (matchedCategories[0] ?? "none") as SchemaCategory;
+
+      // Map reconciled_fields to match the standard extracted_fields format
+      finalExtractedFields = Object.entries(runReconciliationResult.reconciled_fields).reduce(
+        (acc, [key, f]: [string, any]) => {
+          acc[key] = {
+            value: f.value,
+            confidence: f.confidence,
+            source_location: f.source_location,
+            extraction_method: f.resolution_type === "single_source" ? "explicit" : "inferred",
+          };
+          return acc;
+        },
+        {} as Record<string, ExtractedField>
+      );
+
+      finalNotes = runReconciliationResult.summary;
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: `Multi-source pipeline failed: ${err instanceof Error ? err.message : String(err)}`,
+          stage: "reconciliation",
+        },
+        { status: 502 }
+      );
+    }
+  } else {
+    // ── Single-Source Flow ──────────────────────────────────────────────────
+    let extractionResult;
+    try {
+      extractionResult = await runExtraction({
+        rawText,
+        imageBase64,
+        category: categoryHint,
+      });
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: `Extraction failed: ${err instanceof Error ? err.message : String(err)}`,
+          stage: "extraction",
+        },
+        { status: 502 }
+      );
+    }
+
+    finalExtractedFields = extractionResult.extracted_fields;
+    finalNotes = extractionResult.notes ?? "";
+
+    if (categoryHint !== "auto" && isKnownCategory(categoryHint)) {
+      resolvedCategory = categoryHint;
+      if (extractionResult.schema_match !== categoryHint) {
+        pipelineWarnings.push(
+          `Extraction agent classified product as "${extractionResult.schema_match}" ` +
+            `but user hint "${categoryHint}" was used for validation.`
+        );
+      }
+    } else {
+      resolvedCategory = extractionResult.schema_match as SchemaCategory;
+    }
+  }
+
+  // ── 4. Validation (skipped if no known schema) ────────────────────────────
+  const isUnverified = !isKnownCategory(resolvedCategory);
+  let validationResult = null;
+
+  if (!isUnverified) {
+    try {
+      validationResult = await runValidation(
+        finalExtractedFields,
+        resolvedCategory as KnownCategory
+      );
+    } catch (err) {
+      pipelineWarnings.push(
+        `Validation failed and was skipped: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  } else {
+    pipelineWarnings.push(
+      `schema_match is "${resolvedCategory}" — no schema available, validation skipped.`
+    );
+  }
+
+  // ── 5. Gap Resolution ─────────────────────────────────────────────────────
+  let gapResolutionResult = null;
+  if (!isUnverified) {
+    try {
+      gapResolutionResult = await runGapResolution(
+        finalExtractedFields,
+        validationResult,
+        resolvedCategory as KnownCategory
+      );
+    } catch (err) {
+      pipelineWarnings.push(
+        `Gap resolution failed and was skipped: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  // ── 6. Return combined response ───────────────────────────────────────────
+  return NextResponse.json(
+    {
+      schema_match:         resolvedCategory,
+      extracted_fields:     finalExtractedFields,
+      extraction_notes:     finalNotes,
+      validation_result:    validationResult,
+      gap_resolution:       gapResolutionResult,
+      reconciliation_result: reconciliationResult,
+      is_unverified:        isUnverified,
+      pipeline_warnings:    pipelineWarnings,
+    },
+    { status: 200 }
+  );
+}
+
+
