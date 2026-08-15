@@ -1,0 +1,118 @@
+{
+  "category": "electrical_connectors",
+  "displayName": "Electrical Connectors & Terminal Blocks",
+  "description": "Components used to join electrical circuits, including terminal blocks, plugs, and industrial connectors",
+  "fields": [
+    {
+      "key": "product_name",
+      "label": "Product Name",
+      "type": "string",
+      "required": true,
+      "validation": null
+    },
+    {
+      "key": "connector_type",
+      "label": "Connector Type",
+      "type": "enum",
+      "required": true,
+      "validation": {
+        "allowedValues": ["terminal_block", "din_connector", "circular_connector", "spade_terminal", "ring_terminal", "barrier_strip", "pluggable_connector"]
+      }
+    },
+    {
+      "key": "rated_voltage_v",
+      "label": "Rated Voltage",
+      "type": "number",
+      "unit": "V",
+      "required": true,
+      "validation": {
+        "min": 5,
+        "max": 1000,
+        "note": "Common industrial ratings: 250V, 400V, 600V. Flag values above 1000V for low-voltage connector types as likely errors."
+      }
+    },
+    {
+      "key": "rated_current_a",
+      "label": "Rated Current",
+      "type": "number",
+      "unit": "A",
+      "required": true,
+      "validation": {
+        "min": 0.5,
+        "max": 200,
+        "note": "Standard terminal blocks: 10-100A range. Flag extreme outliers."
+      }
+    },
+    {
+      "key": "wire_gauge_range_awg",
+      "label": "Wire Gauge Range",
+      "type": "string",
+      "required": false,
+      "validation": {
+        "pattern": "AWG range e.g. '12-24 AWG'"
+      }
+    },
+    {
+      "key": "material",
+      "label": "Contact Material",
+      "type": "enum",
+      "required": true,
+      "validation": {
+        "allowedValues": ["copper", "brass", "phosphor_bronze", "gold_plated_copper", "tin_plated_copper"]
+      }
+    },
+    {
+      "key": "housing_material",
+      "label": "Housing Material",
+      "type": "enum",
+      "required": false,
+      "validation": {
+        "allowedValues": ["polyamide_pa66", "polycarbonate", "thermoplastic", "ceramic", "bakelite"]
+      }
+    },
+    {
+      "key": "operating_temp_range_c",
+      "label": "Operating Temperature Range",
+      "type": "string",
+      "required": false,
+      "validation": {
+        "note": "Typical industrial range -40C to 105C, format as 'min,max'"
+      }
+    },
+    {
+      "key": "ip_rating",
+      "label": "IP Rating",
+      "type": "enum",
+      "required": false,
+      "validation": {
+        "allowedValues": ["IP20", "IP40", "IP54", "IP65", "IP67", "IP68"]
+      }
+    },
+    {
+      "key": "compliance_tags",
+      "label": "Compliance / Standards",
+      "type": "array",
+      "required": false,
+      "validation": {
+        "allowedValues": ["UL_recognized", "CE", "RoHS", "IEC_60947", "CSA"]
+      }
+    }
+  ],
+  "crossFieldRules": [
+    {
+      "rule": "voltage_vs_current_plausibility",
+      "description": "A connector rated above 600V should not simultaneously report current above 150A unless explicitly industrial/high-power class. Flag combination as needing verification.",
+      "severity": "warning"
+    },
+    {
+      "rule": "material_vs_voltage",
+      "description": "Gold-plated contacts are typically used in low-current signal connectors, not high-voltage (>250V) power connectors. Flag mismatch as possibly wrong product classification.",
+      "severity": "warning"
+    },
+    {
+      "rule": "ip_rating_vs_housing",
+      "description": "IP65+ ratings require sealed housing (thermoplastic/polycarbonate), not open bakelite/ceramic terminal designs. Flag inconsistency as likely extraction error.",
+      "severity": "error"
+    }
+  ]
+}
