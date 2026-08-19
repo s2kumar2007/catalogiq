@@ -8,6 +8,7 @@ import { callGroq, parseJsonResponse } from "@/lib/groq";
 import { VALIDATION_SYSTEM_PROMPT } from "@/lib/prompts";
 import { loadSchemaJson } from "@/lib/agents/extract";
 import type { ExtractedField, ValidationResult, ValidationFlag } from "@/lib/types";
+import type { SchemaField } from "@/lib/agents/classify";
 
 // ---------------------------------------------------------------------------
 // Extended types (exported so the orchestrator and route can share them)
@@ -39,35 +40,58 @@ export interface ValidationResultExtended extends ValidationResult {
  */
 export async function runValidation(
   extractedFields: Record<string, ExtractedField>,
-  category: "fasteners" | "electrical_connectors"
+  category: "fasteners" | "electrical_connectors" | "Built-In Dishwashers",
+  /** Optional: LLM-generated schema fields from classify stage (used when no static JSON exists) */
+  llmSchemaFields?: SchemaField[]
 ): Promise<ValidationResultExtended> {
-  // ── Load and parse schema to trim it ─────────────────────────────────────
-  const schemaRaw = loadSchemaJson(category);
-  let parsedSchema: any;
-  try {
-    parsedSchema = JSON.parse(schemaRaw);
-  } catch {
-    parsedSchema = null;
-  }
+  const schemaFileMap: Record<string, string> = {
+    fasteners: "fasteners",
+    electrical_connectors: "electrical_connectors",
+    // Built-In Dishwashers has no static file — uses LLM-generated schema_fields
+  };
 
   let trimmedSchema: any = null;
-  if (parsedSchema) {
-    const fieldsToKeep = parsedSchema.fields?.filter((f: any) => 
-      Object.prototype.hasOwnProperty.call(extractedFields, f.key)
-    ).map((f: any) => ({
-      key: f.key,
-      label: f.label,
-      type: f.type,
-      unit: f.unit,
-      required: f.required,
-      validation: f.validation,
-    })) ?? [];
 
+  if (llmSchemaFields && llmSchemaFields.length > 0) {
+    // Use LLM-generated schema (array shape, matches fasteners.json field shape)
     trimmedSchema = {
-      category: parsedSchema.category,
-      fields: fieldsToKeep,
-      crossFieldRules: parsedSchema.crossFieldRules ?? [],
+      category,
+      fields: llmSchemaFields.filter((f) =>
+        Object.prototype.hasOwnProperty.call(extractedFields, f.key)
+      ),
+      crossFieldRules: [],
     };
+  } else if (schemaFileMap[category]) {
+    // Load static JSON schema file
+    const schemaRaw = loadSchemaJson(schemaFileMap[category] as any);
+    let parsedSchema: any;
+    try {
+      parsedSchema = JSON.parse(schemaRaw);
+    } catch {
+      parsedSchema = null;
+    }
+
+    if (parsedSchema) {
+      // parsedSchema.fields is always an array in fasteners.json / connectors.json
+      const fieldsArray: any[] = Array.isArray(parsedSchema.fields)
+        ? parsedSchema.fields
+        : Object.entries(parsedSchema.fields as Record<string, any>).map(([key, v]) => ({ key, ...v }));
+
+      trimmedSchema = {
+        category: parsedSchema.category,
+        fields: fieldsArray.filter((f: any) =>
+          Object.prototype.hasOwnProperty.call(extractedFields, f.key)
+        ).map((f: any) => ({
+          key: f.key,
+          label: f.label,
+          type: f.type,
+          unit: f.unit,
+          required: f.required,
+          validation: f.validation,
+        })),
+        crossFieldRules: parsedSchema.crossFieldRules ?? [],
+      };
+    }
   }
 
   // ── Trim extracted fields payload (drop source_location) ─────────────────

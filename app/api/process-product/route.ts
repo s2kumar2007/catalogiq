@@ -40,6 +40,17 @@ import type { SchemaCategory, ExtractedField } from "@/lib/types";
 type KnownCategory = "fasteners" | "electrical_connectors" | "Built-In Dishwashers";
 const KNOWN_CATEGORIES: KnownCategory[] = ["fasteners", "electrical_connectors", "Built-In Dishwashers"];
 
+/** Map a classification classpath string to a KnownCategory or return null */
+function classpathToCategory(classpath: string): KnownCategory | null {
+  const cp = classpath.toLowerCase();
+  if (cp.includes("dishwasher")) return "Built-In Dishwashers";
+  if (cp.includes("fastener") || cp.includes("bolt") || cp.includes("screw") || cp.includes("nut"))
+    return "fasteners";
+  if (cp.includes("connector") || cp.includes("terminal") || cp.includes("wiring"))
+    return "electrical_connectors";
+  return null;
+}
+
 function isKnownCategory(s: string): s is KnownCategory {
   return KNOWN_CATEGORIES.includes(s as KnownCategory);
 }
@@ -164,18 +175,12 @@ export async function POST(req: NextRequest) {
   if (rawText) {
     try {
       classificationResult = await runClassification({ rawText });
-      
-      // Map the exact classpath back to our KnownCategory for schema routing
-      const classpath = classificationResult.classpath;
-      if (classpath === "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers") {
-        resolvedCategory = "Built-In Dishwashers";
-      } else if (classpath.toLowerCase().includes("fasteners")) {
-        resolvedCategory = "fasteners";
-      } else if (classpath.toLowerCase().includes("connectors")) {
-        resolvedCategory = "electrical_connectors";
+      const mapped = classpathToCategory(classificationResult.classpath);
+      if (mapped) {
+        resolvedCategory = mapped;
       } else {
-        // Organic fallback, no hardcoded default
-        resolvedCategory = "none"; 
+        // Organic fallback — category unknown, validation will be skipped
+        resolvedCategory = "none";
       }
     } catch (err) {
       pipelineWarnings.push(`Classification failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -272,7 +277,9 @@ export async function POST(req: NextRequest) {
     try {
       validationResult = await runValidation(
         finalExtractedFields,
-        resolvedCategory as KnownCategory
+        resolvedCategory as KnownCategory,
+        // Pass LLM-generated schema fields (used for dishwasher; fasteners/connectors use static files)
+        classificationResult?.schema_fields ?? undefined
       );
     } catch (err) {
       pipelineWarnings.push(
@@ -301,17 +308,33 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 6. Enrichment (Stage 5) ────────────────────────────────────────────────
+  // ── 6. Enrichment (Stage 5) ──────────────────────────────────────────────
   let enrichmentResult = null;
-  const manufKey = Object.keys(finalExtractedFields).find(k => k.toLowerCase().includes("manuf"));
+  // Extract manufacturer name and real MPN from extracted fields
+  const manufKey = Object.keys(finalExtractedFields).find(
+    (k) => k === "MANUFACTURER_NAME" || k === "Part_Manuf" || k.toLowerCase().includes("manuf")
+  );
+  const mpnKey = Object.keys(finalExtractedFields).find(
+    (k) =>
+      k === "MANUFACTURER_PART_NUMBER" ||
+      k === "Mfg_Part_Num" ||
+      k === "mfg_part_num" ||
+      k.toLowerCase().includes("part_num") ||
+      k.toLowerCase().includes("mpn")
+  );
   const manuf = manufKey ? finalExtractedFields[manufKey]?.value : undefined;
-  
-  if (manuf && isKnownCategory(resolvedCategory)) {
+  const mpn = mpnKey ? finalExtractedFields[mpnKey]?.value : undefined;
+
+  if (manuf && mpn) {
     try {
-      enrichmentResult = await runEnrichment({ manufacturerName: manuf, partNumber: "unknown" });
+      enrichmentResult = await runEnrichment({ manufacturerName: manuf, partNumber: mpn });
     } catch (err) {
       pipelineWarnings.push(`Enrichment failed: ${err instanceof Error ? err.message : String(err)}`);
     }
+  } else {
+    pipelineWarnings.push(
+      `Enrichment skipped: could not resolve manufacturer (${manufKey ?? "none"}) or MPN (${mpnKey ?? "none"}) from extracted fields.`
+    );
   }
 
   // (Classification moved to Stage 2)
