@@ -9,13 +9,13 @@
 
 import { callGemini, parseJsonResponse } from "@/lib/gemini";
 import { GAP_RESOLUTION_SYSTEM_PROMPT } from "@/lib/prompts";
-import { loadSchemaJson } from "@/lib/agents/extract";
 import type {
   ExtractedField,
   ValidationResult,
   GapAsk,
   SchemaCategory,
 } from "@/lib/types";
+import type { SchemaField } from "@/lib/agents/classify";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,14 +59,20 @@ export interface GapResolutionResult {
 export async function runGapResolution(
   extractedFields: Record<string, ExtractedField>,
   validationResult: ValidationResult | null,
-  category: Exclude<SchemaCategory, "none">
+  category: Exclude<SchemaCategory, "none">,
+  llmSchemaFields?: SchemaField[]
 ): Promise<GapResolutionResult> {
-  // ── Load schema so the agent knows which fields are required ──────────────
-  const schemaJson = loadSchemaJson(category);
+  // ── Build schema string ───────────────────────────────────────────────────
+  let schemaString = "No specific schema provided.";
+  if (llmSchemaFields && llmSchemaFields.length > 0) {
+    schemaString = llmSchemaFields
+      .map((f) => `- ${f.key} (${f.label})${f.required ? " [required]" : ""}`)
+      .join("\n");
+  }
 
   // ── Build user content ────────────────────────────────────────────────────
   const userContent =
-    `Category schema:\n${schemaJson}\n\n` +
+    `Category schema:\n${schemaString}\n\n` +
     `Extracted fields:\n${JSON.stringify(extractedFields, null, 2)}\n\n` +
     `Validation result:\n${JSON.stringify(validationResult, null, 2)}`;
 

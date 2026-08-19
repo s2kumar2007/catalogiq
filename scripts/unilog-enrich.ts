@@ -29,6 +29,10 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { loadEnvConfig } from "@next/env";
+
+// Load Next.js environment variables (.env.local) so GEMINI_API_KEY is available
+loadEnvConfig(process.cwd());
 
 // ── LLM agent imports (TypeScript, resolved via tsconfig paths @/*) ──────────
 import { runClassification } from "../lib/agents/classify";
@@ -123,11 +127,25 @@ async function main() {
   // Load delivery schema for column names (NOT for GT values — only column headers used)
   const schema = loadDeliverySchema(FORMAT);
   const inputCsv = readCsv(INPUT);
-  const inputRows: Record<string, string>[] = inputCsv.data;
+  let inputRows: Record<string, string>[] = inputCsv.data;
 
   // Load expected output for (a) column names, (b) post-hoc scoring only
   const outputCsv = readCsv(FORMAT);
   const outputRows: Record<string, string>[] = outputCsv.data;
+
+  // ── Parse CLI arguments (e.g., --mfr=frigidaire) ────────────────────────────
+  const args = process.argv.slice(2);
+  const mfrFilter = args.find((a) => a.startsWith("--mfr="))?.split("=")[1]?.toLowerCase();
+  
+  if (mfrFilter) {
+    console.log(`\n[FILTER] Applying filter: --mfr="${mfrFilter}"`);
+    inputRows = inputRows.filter((row) => {
+      const manuf = (row["Part_Manuf"] ?? row["MANUFACTURER_NAME"] ?? "").toLowerCase();
+      const brand = (row["E1_Brand"] ?? "").toLowerCase();
+      const desc  = (row["Part_Desc"] ?? "").toLowerCase();
+      return manuf.includes(mfrFilter) || brand.includes(mfrFilter) || desc.includes(mfrFilter);
+    });
+  }
 
   // Build ground-truth index: MPN → attributes
   // IMPORTANT: This is ONLY used for post-hoc scoring AFTER the pipeline runs.

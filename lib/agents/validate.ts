@@ -6,7 +6,6 @@
 
 import { callGroq, parseJsonResponse } from "@/lib/groq";
 import { VALIDATION_SYSTEM_PROMPT } from "@/lib/prompts";
-import { loadSchemaJson } from "@/lib/agents/extract";
 import type { ExtractedField, ValidationResult, ValidationFlag } from "@/lib/types";
 import type { SchemaField } from "@/lib/agents/classify";
 
@@ -63,38 +62,6 @@ export async function runValidation(
       crossFieldRules: [],
     };
     schemaForPrompt = trimmedSchema;
-  } else if (schemaFileMap[category]) {
-    // Load static JSON schema file
-    const schemaRaw = loadSchemaJson(schemaFileMap[category] as any);
-    let parsedSchema: any;
-    try {
-      parsedSchema = JSON.parse(schemaRaw);
-    } catch {
-      parsedSchema = null;
-    }
-
-    if (parsedSchema) {
-      // parsedSchema.fields is always an array in fasteners.json / connectors.json
-      const fieldsArray: any[] = Array.isArray(parsedSchema.fields)
-        ? parsedSchema.fields
-        : Object.entries(parsedSchema.fields as Record<string, any>).map(([key, v]) => ({ key, ...v }));
-
-      trimmedSchema = {
-        category: parsedSchema.category,
-        fields: fieldsArray.filter((f: any) =>
-          Object.prototype.hasOwnProperty.call(extractedFields, f.key)
-        ).map((f: any) => ({
-          key: f.key,
-          label: f.label,
-          type: f.type,
-          unit: f.unit,
-          required: f.required,
-          validation: f.validation,
-        })),
-        crossFieldRules: parsedSchema.crossFieldRules ?? [],
-      };
-      schemaForPrompt = trimmedSchema;
-    }
   }
   if (!schemaForPrompt) {
     schemaForPrompt = {

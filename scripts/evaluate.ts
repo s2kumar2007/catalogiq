@@ -24,6 +24,10 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import { loadEnvConfig } from "@next/env";
+
+// Load Next.js environment variables (.env.local) so GEMINI_API_KEY is available
+loadEnvConfig(process.cwd());
 
 // ── Imports from lib (ts-node resolves via tsconfig paths) ───────────────────
 import { runClassification } from "../lib/agents/classify";
