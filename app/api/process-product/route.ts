@@ -27,14 +27,18 @@ import { runExtraction }             from "@/lib/agents/extract";
 import { runValidation }             from "@/lib/agents/validate";
 import { runGapResolution }          from "@/lib/agents/gap-resolve";
 import { runReconciliation }         from "@/lib/agents/reconcile";
+import { runEnrichment }             from "@/lib/agents/enrich";
+import { runClassification }         from "@/lib/agents/classify";
+import { runNormalization }          from "@/lib/agents/normalize";
+import { runFormatting }             from "@/lib/agents/format";
 import type { SchemaCategory, ExtractedField } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-type KnownCategory = "fasteners" | "electrical_connectors";
-const KNOWN_CATEGORIES: KnownCategory[] = ["fasteners", "electrical_connectors"];
+type KnownCategory = "fasteners" | "electrical_connectors" | "Built-In Dishwashers";
+const KNOWN_CATEGORIES: KnownCategory[] = ["fasteners", "electrical_connectors", "Built-In Dishwashers"];
 
 function isKnownCategory(s: string): s is KnownCategory {
   return KNOWN_CATEGORIES.includes(s as KnownCategory);
@@ -153,8 +157,32 @@ export async function POST(req: NextRequest) {
   let finalNotes = "";
   let resolvedCategory: SchemaCategory = "none";
   let reconciliationResult = null;
+  let classificationResult = null;
 
-  // ── 2. Extraction & Optional Reconciliation ──────────────────────────────
+  // ── 2. Classification (Stage 3) ─────────────────────────────────────────────
+  // Run Classification FIRST to determine the correct schema
+  if (rawText) {
+    try {
+      classificationResult = await runClassification({ rawText });
+      
+      // Map the exact classpath back to our KnownCategory for schema routing
+      const classpath = classificationResult.classpath;
+      if (classpath === "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers") {
+        resolvedCategory = "Built-In Dishwashers";
+      } else if (classpath.toLowerCase().includes("fasteners")) {
+        resolvedCategory = "fasteners";
+      } else if (classpath.toLowerCase().includes("connectors")) {
+        resolvedCategory = "electrical_connectors";
+      } else {
+        // Organic fallback, no hardcoded default
+        resolvedCategory = "none"; 
+      }
+    } catch (err) {
+      pipelineWarnings.push(`Classification failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // ── 3. Extraction & Optional Reconciliation ──────────────────────────────
   if (isMultiSource && sources) {
     try {
       // Parallel extraction calls for speed
@@ -210,10 +238,11 @@ export async function POST(req: NextRequest) {
     // ── Single-Source Flow ──────────────────────────────────────────────────
     let extractionResult;
     try {
+      // Use the dynamically resolved category from Classification, not the static hint
       extractionResult = await runExtraction({
         rawText,
         imageBase64,
-        category: categoryHint,
+        category: resolvedCategory !== "none" ? resolvedCategory : categoryHint,
       });
     } catch (err) {
       return NextResponse.json(
@@ -228,15 +257,9 @@ export async function POST(req: NextRequest) {
     finalExtractedFields = extractionResult.extracted_fields;
     finalNotes = extractionResult.notes ?? "";
 
-    if (categoryHint !== "auto" && isKnownCategory(categoryHint)) {
-      resolvedCategory = categoryHint;
-      if (extractionResult.schema_match !== categoryHint) {
-        pipelineWarnings.push(
-          `Extraction agent classified product as "${extractionResult.schema_match}" ` +
-            `but user hint "${categoryHint}" was used for validation.`
-        );
-      }
-    } else {
+    // If classification found a category, we already have resolvedCategory. 
+    // If not, we fall back to what extraction guessed.
+    if (resolvedCategory === "none") {
       resolvedCategory = extractionResult.schema_match as SchemaCategory;
     }
   }
@@ -278,7 +301,44 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 6. Return combined response ───────────────────────────────────────────
+  // ── 6. Enrichment (Stage 5) ────────────────────────────────────────────────
+  let enrichmentResult = null;
+  const manufKey = Object.keys(finalExtractedFields).find(k => k.toLowerCase().includes("manuf"));
+  const manuf = manufKey ? finalExtractedFields[manufKey]?.value : undefined;
+  
+  if (manuf && isKnownCategory(resolvedCategory)) {
+    try {
+      enrichmentResult = await runEnrichment({ manufacturerName: manuf, partNumber: "unknown" });
+    } catch (err) {
+      pipelineWarnings.push(`Enrichment failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // (Classification moved to Stage 2)
+
+  // ── 8. Normalization (Stage 6) ──────────────────────────────────────────────
+  let normalizationResult = null;
+  if (!isUnverified) {
+    try {
+      normalizationResult = await runNormalization(finalExtractedFields);
+      // Update final fields with normalized values
+      finalExtractedFields = normalizationResult.normalized_fields;
+    } catch (err) {
+      pipelineWarnings.push(`Normalization failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // ── 9. Formatting (Stage 7) ────────────────────────────────────────────────
+  let formattingResult = null;
+  if (!isUnverified && normalizationResult) {
+    try {
+      formattingResult = await runFormatting(finalExtractedFields);
+    } catch (err) {
+      pipelineWarnings.push(`Formatting failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // ── 10. Return combined response ───────────────────────────────────────────
   return NextResponse.json(
     {
       schema_match:         resolvedCategory,
@@ -287,6 +347,10 @@ export async function POST(req: NextRequest) {
       validation_result:    validationResult,
       gap_resolution:       gapResolutionResult,
       reconciliation_result: reconciliationResult,
+      enrichment_result:    enrichmentResult,
+      classification_result: classificationResult,
+      normalization_result: normalizationResult,
+      delivery_formats:     formattingResult?.delivery_formats,
       is_unverified:        isUnverified,
       pipeline_warnings:    pipelineWarnings,
     },
