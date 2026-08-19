@@ -211,7 +211,26 @@ export interface GapAsk {
 }
 
 // ---------------------------------------------------------------------------
-// 8. FinalProductRecord — the complete result for one processed product
+// 8. DeliveryFormats — Output of the formatting agent (Stage 7)
+// ---------------------------------------------------------------------------
+
+export interface DeliveryFormats {
+  /** 60-80 character short description. */
+  mobile_desc: string;
+  /** Product Title / Short Description. */
+  short_desc: string;
+  /** Full long description with specifications. */
+  long_desc: string;
+  /** Formatted attributes string (e.g. "Series = X; Mounting = Y..."). */
+  attributes_string: string;
+  /** Optional marketing copy, if applicable. */
+  marketing_copy?: string;
+  /** Optional POS/till receipt description, if applicable. */
+  till_receipt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// 9. FinalProductRecord — the complete result for one processed product
 // ---------------------------------------------------------------------------
 
 /**
@@ -273,6 +292,12 @@ export interface FinalProductRecord {
    * describing the product and any notable quality issues.
    */
   summary?: string;
+
+  /**
+   * Generated consumer-facing text formats (Stage 7).
+   * Only present if normalization and formatting succeeded.
+   */
+  delivery_formats?: DeliveryFormats;
 }
 
 // ---------------------------------------------------------------------------
