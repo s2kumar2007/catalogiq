@@ -9,7 +9,7 @@
  *  3. Fixing UOM spacing ("24in" → "24 in", "120V" → "120 V")
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { callGemini, parseJsonResponse } from "@/lib/gemini";
 import type { ExtractedField } from "@/lib/types";
 
 export interface NormalizationResult {
@@ -36,12 +36,6 @@ async function canonicalizeName(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return rawName;
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-3.6-flash",
-    generationConfig: { temperature: 0, responseMimeType: "application/json" },
-  });
-
   const prompt =
     fieldType === "manufacturer"
       ? `Return the canonical legal company name for this manufacturer. Preserve exact casing, punctuation, and abbreviations as used in official product literature. If unknown, return the input unchanged.
@@ -52,9 +46,8 @@ Input: "${rawName}"
 Return JSON: { "canonical": "string" }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = result.response.text().replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(text);
+    const text = await callGemini("Return only valid JSON.", prompt, apiKey);
+    const parsed = parseJsonResponse<{ canonical?: string }>(text);
     return parsed.canonical ?? rawName;
   } catch {
     return rawName;
@@ -80,13 +73,14 @@ export async function runNormalization(
   const notes: string[] = [];
 
   for (const [key, field] of Object.entries(fields)) {
+    const rawValue = String(field.value ?? "");
     // 1. Drop placeholders
-    if (PLACEHOLDERS.has(field.value?.trim() ?? "")) {
+    if (PLACEHOLDERS.has(rawValue.trim())) {
       notes.push(`[DROP] Placeholder removed for field: ${key}`);
       continue;
     }
 
-    let newValue = field.value;
+    let newValue = rawValue;
 
     // 2. Canonicalize manufacturer name via LLM
     const isManufKey =

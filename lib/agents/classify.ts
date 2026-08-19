@@ -8,8 +8,7 @@
  * the product text and the Expected Output format.
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import type { ExtractedField } from "@/lib/types";
+import { callGemini, parseJsonResponse } from "@/lib/gemini";
 
 export interface ClassificationInput {
   rawText: string;
@@ -71,26 +70,13 @@ export async function runClassification(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-  // Use the correct, current Gemini model name
-  const model = genAI.getGenerativeModel({
-    model: "gemini-3.6-flash",
-    systemInstruction: SYSTEM_PROMPT,
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-    },
-  });
-
   const userPrompt = `Classify this product and generate its attribute schema:
 
 ${input.rawText}`;
 
   try {
-    const result = await model.generateContent(userPrompt);
-    const responseText = result.response.text();
-    const jsonStr = responseText.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(jsonStr) as ClassificationResult;
+    const responseText = await callGemini(SYSTEM_PROMPT, userPrompt, apiKey);
+    const parsed = parseJsonResponse<ClassificationResult>(responseText);
 
     // Validate shape
     if (!parsed.classpath || !Array.isArray(parsed.schema_fields)) {

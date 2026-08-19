@@ -217,17 +217,27 @@ export interface GapAsk {
 export interface DeliveryFormats {
   /** 60-80 character short description. */
   mobile_desc: string;
+  /** POS/till receipt description, <= 40 chars in the Unilog guide. */
+  invoice_desc?: string;
   /** Product Title / Short Description. */
   short_desc: string;
   /** Full long description with specifications. */
   long_desc: string;
+  /** Retail/search-result description. */
+  retail_desc?: string;
+  /** Attribute slots rendered as readable label/value/uom strings. */
+  attributes?: string[];
   /** Formatted attributes string (e.g. "Series = X; Mounting = Y..."). */
   attributes_string: string;
+  /** Whether fixed source-only fields were retrieved or intentionally left blank. */
+  fixed_block_status?: unknown;
   /** Optional marketing copy, if applicable. */
   marketing_copy?: string;
   /** Optional POS/till receipt description, if applicable. */
   till_receipt?: string;
 }
+
+export type UnilogDeliveryRecord = Record<string, string>;
 
 // ---------------------------------------------------------------------------
 // 9. FinalProductRecord — the complete result for one processed product

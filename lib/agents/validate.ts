@@ -51,6 +51,7 @@ export async function runValidation(
   };
 
   let trimmedSchema: any = null;
+  let schemaForPrompt: any = null;
 
   if (llmSchemaFields && llmSchemaFields.length > 0) {
     // Use LLM-generated schema (array shape, matches fasteners.json field shape)
@@ -61,6 +62,7 @@ export async function runValidation(
       ),
       crossFieldRules: [],
     };
+    schemaForPrompt = trimmedSchema;
   } else if (schemaFileMap[category]) {
     // Load static JSON schema file
     const schemaRaw = loadSchemaJson(schemaFileMap[category] as any);
@@ -91,7 +93,16 @@ export async function runValidation(
         })),
         crossFieldRules: parsedSchema.crossFieldRules ?? [],
       };
+      schemaForPrompt = trimmedSchema;
     }
+  }
+  if (!schemaForPrompt) {
+    schemaForPrompt = {
+      category,
+      fields: [],
+      crossFieldRules: [],
+      note: "No static schema or generated schema fields were available; validate only the supplied field consistency.",
+    };
   }
 
   // ── Trim extracted fields payload (drop source_location) ─────────────────
@@ -109,7 +120,7 @@ export async function runValidation(
 
   // ── Build Groq user message ───────────────────────────────────────────────
   const userContent =
-    `Category schema:\n${JSON.stringify(trimmedSchema || schemaRaw, null, 2)}\n\n` +
+    `Category schema:\n${JSON.stringify(schemaForPrompt, null, 2)}\n\n` +
     `Extracted fields to validate:\n${JSON.stringify(trimmedExtractedFields, null, 2)}`;
 
   // ── Token estimate check ──────────────────────────────────────────────────

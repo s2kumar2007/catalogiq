@@ -31,13 +31,15 @@ import { runEnrichment }             from "@/lib/agents/enrich";
 import { runClassification }         from "@/lib/agents/classify";
 import { runNormalization }          from "@/lib/agents/normalize";
 import { runFormatting }             from "@/lib/agents/format";
-import type { SchemaCategory, ExtractedField } from "@/lib/types";
+import type { ExtractedField } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-type KnownCategory = "fasteners" | "electrical_connectors" | "Built-In Dishwashers";
+type StaticCategory = "fasteners" | "electrical_connectors";
+type KnownCategory = StaticCategory | "Built-In Dishwashers";
+const STATIC_CATEGORIES: StaticCategory[] = ["fasteners", "electrical_connectors"];
 const KNOWN_CATEGORIES: KnownCategory[] = ["fasteners", "electrical_connectors", "Built-In Dishwashers"];
 
 /** Map a classification classpath string to a KnownCategory or return null */
@@ -53,6 +55,10 @@ function classpathToCategory(classpath: string): KnownCategory | null {
 
 function isKnownCategory(s: string): s is KnownCategory {
   return KNOWN_CATEGORIES.includes(s as KnownCategory);
+}
+
+function isStaticCategory(s: string): s is StaticCategory {
+  return STATIC_CATEGORIES.includes(s as StaticCategory);
 }
 
 interface SourcePayload {
@@ -166,7 +172,7 @@ export async function POST(req: NextRequest) {
 
   let finalExtractedFields: Record<string, ExtractedField> = {};
   let finalNotes = "";
-  let resolvedCategory: SchemaCategory = "none";
+  let resolvedCategory: KnownCategory | "none" = "none";
   let reconciliationResult = null;
   let classificationResult = null;
 
@@ -213,7 +219,8 @@ export async function POST(req: NextRequest) {
       const matchedCategories = extractedSources
         .map((s) => s.extraction_result.schema_match)
         .filter((c) => c !== "none");
-      resolvedCategory = (matchedCategories[0] ?? "none") as SchemaCategory;
+      const firstMatch = matchedCategories[0] ?? "none";
+      resolvedCategory = isKnownCategory(firstMatch) ? firstMatch : "none";
 
       // Map reconciled_fields to match the standard extracted_fields format
       finalExtractedFields = Object.entries(runReconciliationResult.reconciled_fields).reduce(
@@ -247,7 +254,7 @@ export async function POST(req: NextRequest) {
       extractionResult = await runExtraction({
         rawText,
         imageBase64,
-        category: resolvedCategory !== "none" ? resolvedCategory : categoryHint,
+        category: isStaticCategory(resolvedCategory) ? resolvedCategory : categoryHint,
       });
     } catch (err) {
       return NextResponse.json(
@@ -265,7 +272,9 @@ export async function POST(req: NextRequest) {
     // If classification found a category, we already have resolvedCategory. 
     // If not, we fall back to what extraction guessed.
     if (resolvedCategory === "none") {
-      resolvedCategory = extractionResult.schema_match as SchemaCategory;
+      resolvedCategory = isKnownCategory(extractionResult.schema_match)
+        ? extractionResult.schema_match
+        : "none";
     }
   }
 
@@ -273,11 +282,11 @@ export async function POST(req: NextRequest) {
   const isUnverified = !isKnownCategory(resolvedCategory);
   let validationResult = null;
 
-  if (!isUnverified) {
+  if (isKnownCategory(resolvedCategory)) {
     try {
       validationResult = await runValidation(
         finalExtractedFields,
-        resolvedCategory as KnownCategory,
+        resolvedCategory,
         // Pass LLM-generated schema fields (used for dishwasher; fasteners/connectors use static files)
         classificationResult?.schema_fields ?? undefined
       );
@@ -294,12 +303,12 @@ export async function POST(req: NextRequest) {
 
   // ── 5. Gap Resolution ─────────────────────────────────────────────────────
   let gapResolutionResult = null;
-  if (!isUnverified) {
+  if (isStaticCategory(resolvedCategory)) {
     try {
       gapResolutionResult = await runGapResolution(
         finalExtractedFields,
         validationResult,
-        resolvedCategory as KnownCategory
+        resolvedCategory
       );
     } catch (err) {
       pipelineWarnings.push(
@@ -322,8 +331,10 @@ export async function POST(req: NextRequest) {
       k.toLowerCase().includes("part_num") ||
       k.toLowerCase().includes("mpn")
   );
-  const manuf = manufKey ? finalExtractedFields[manufKey]?.value : undefined;
-  const mpn = mpnKey ? finalExtractedFields[mpnKey]?.value : undefined;
+  const manufValue = manufKey ? finalExtractedFields[manufKey]?.value : undefined;
+  const mpnValue = mpnKey ? finalExtractedFields[mpnKey]?.value : undefined;
+  const manuf = manufValue == null ? undefined : String(manufValue);
+  const mpn = mpnValue == null ? undefined : String(mpnValue);
 
   if (manuf && mpn) {
     try {
@@ -380,5 +391,3 @@ export async function POST(req: NextRequest) {
     { status: 200 }
   );
 }
-
-

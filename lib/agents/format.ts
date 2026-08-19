@@ -1,74 +1,66 @@
 /**
  * lib/agents/format.ts
- * Stage 7: Description Building (Formatting) Agent
+ * Stage 7: Unilog delivery formatting.
+ *
+ * This returns the full wide delivery shape, including ATTRIBUTE_LABEL/VALUE/UOM
+ * slots and fixed retrieval columns. Official-source-only fields stay blank
+ * unless a retrieval stage passes verified manufacturer data.
  */
 
-import { FORMATTING_SYSTEM_PROMPT } from "@/lib/prompts";
-import { DeliveryFormats, ExtractedField } from "@/lib/types";
+import { DeliveryFormats, ExtractedField, UnilogDeliveryRecord } from "@/lib/types";
+
+const {
+  buildUnilogDeliveryRecord,
+  loadDeliverySchema,
+  rowFromFields,
+} = require("@/lib/unilog-format");
 
 export interface FormattingResult {
   delivery_formats: DeliveryFormats;
+  delivery_record: UnilogDeliveryRecord;
+  delivery_columns: string[];
+  trace: Record<string, unknown>;
 }
 
 export async function runFormatting(
-  normalizedFields: Record<string, ExtractedField>
+  normalizedFields: Record<string, ExtractedField>,
+  officialSourceData?: Partial<UnilogDeliveryRecord>
 ): Promise<FormattingResult> {
-  const { GoogleGenerativeAI } = require("@google/generative-ai");
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-  
-  const PRIMARY_MODEL = process.env.PRIMARY_MODEL || "gemini-3.6-flash";
-  const model = genAI.getGenerativeModel({
-    model: PRIMARY_MODEL,
-    systemInstruction: FORMATTING_SYSTEM_PROMPT,
-    generationConfig: {
-      temperature: 0.1,
-      responseMimeType: "application/json",
-    },
+  const schema = loadDeliverySchema();
+  const sourceRow = rowFromFields(normalizedFields);
+  const formatted = buildUnilogDeliveryRecord(sourceRow, {
+    columns: schema.columns,
+    categoryExamples: [],
+    officialSourceData,
+    officialAssetsFound: Boolean(
+      officialSourceData?.["Product Image"] ||
+      officialSourceData?.["Alternate Image 1"]
+    ),
   });
 
-  // Convert normalized fields to a simpler key-value object for the prompt
-  const simpleFields: Record<string, string> = {};
-  for (const [k, v] of Object.entries(normalizedFields)) {
-    simpleFields[k] = v.value;
+  const attributes: string[] = [];
+  for (let i = 1; i <= 50; i++) {
+    const label = formatted.record[`ATTRIBUTE_LABEL ${i}`];
+    const value = formatted.record[`ATTRIBUTE_VALUE ${i}`];
+    const uom = formatted.record[`ATTRIBUTE_UOM ${i}`];
+    if (label && value) {
+      attributes.push(`${label} = ${value}${uom ? ` ${uom}` : ""}`);
+    }
   }
 
-  const userPrompt = `
-Generate the delivery formats using exactly these normalized fields and no others.
-
-Normalized Fields:
-${JSON.stringify(simpleFields, null, 2)}
-
-Return JSON strictly matching this shape:
-{
-  "mobile_desc": "string (60-80 chars max)",
-  "short_desc": "string",
-  "long_desc": "string",
-  "attributes_string": "string"
-}
-  `;
-
-  try {
-    const result = await model.generateContent(userPrompt);
-    const responseText = result.response.text();
-    const jsonStr = responseText.replace(/```json|```/g, "").trim();
-    const formats = JSON.parse(jsonStr) as DeliveryFormats;
-    
-    // Fallbacks if missing
-    if (!formats.mobile_desc) formats.mobile_desc = "";
-    if (!formats.short_desc) formats.short_desc = "";
-    if (!formats.long_desc) formats.long_desc = "";
-    if (!formats.attributes_string) formats.attributes_string = "";
-    
-    return { delivery_formats: formats };
-  } catch (error) {
-    console.error("Formatting error:", error);
-    return {
-      delivery_formats: {
-        mobile_desc: "Error generating mobile description.",
-        short_desc: "Error generating short description.",
-        long_desc: "Error generating long description.",
-        attributes_string: "Error generating attributes."
-      }
-    };
-  }
+  return {
+    delivery_formats: {
+      mobile_desc: formatted.record.MOBILE_DESC,
+      short_desc: formatted.record.SHORT_DESC,
+      long_desc: formatted.record.LONG_DESC1,
+      invoice_desc: formatted.record.INVOICE_DESC,
+      retail_desc: formatted.record.RETAIL_DESC,
+      attributes,
+      attributes_string: attributes.join("; "),
+      fixed_block_status: formatted.trace.fixed_block_status,
+    },
+    delivery_record: formatted.record,
+    delivery_columns: schema.columns,
+    trace: formatted.trace,
+  };
 }

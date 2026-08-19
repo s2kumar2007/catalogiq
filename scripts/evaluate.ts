@@ -16,9 +16,6 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import * as dotenv from "dotenv";
-
-dotenv.config({ path: ".env.local" });
 
 // ── Imports from lib (ts-node resolves via tsconfig paths) ───────────────────
 import { runClassification } from "../lib/agents/classify";
@@ -199,7 +196,7 @@ async function main() {
       // Build predicted attributes map from normalized fields
       const predictedAttrs: Record<string, string> = {};
       for (const [k, v] of Object.entries(normResult.normalized_fields)) {
-        predictedAttrs[k] = v.value;
+        predictedAttrs[k] = String(v.value);
       }
       // Add delivery format fields
       predictedAttrs["MOBILE_DESC"]  = formats.mobile_desc  ?? "";

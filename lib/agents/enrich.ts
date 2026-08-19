@@ -12,7 +12,7 @@
  *   B) Returned URL is on the wrong domain → "needs review - domain mismatch"
  */
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
 export interface EnrichmentInput {
   manufacturerName: string;
@@ -27,15 +27,16 @@ export interface EnrichmentResult {
 }
 
 // ── Manufacturer → canonical domain map ──────────────────────────────────────
-// Derived from MANUFACTURER_NAME and MFR URL columns in the Expected Output CSV.
+// Manufacturer or brand names mapped to their own official domains.
+// Do not infer manufacturer domains from distributor fields in sample rows.
 const MANUFACTURER_DOMAIN_MAP: Record<string, string> = {
-  "Rheem Manufacturing":                   "frigidaire.com",
-  "Appliance Dealers Cooperative (APPDE)": "frigidaire.com",
+  "Rheem Manufacturing":                   "rheem.com",
   "Whirlpool Corporation":                 "whirlpool.com",
   "Jam Industrial Supply LLC (JAMIN)":     "3m.com",
   "Freud Inc (2435)":                      "diablotools.com",
   // Common brand name variants for broader matching
   frigidaire: "frigidaire.com",
+  rheem:      "rheem.com",
   whirlpool:  "whirlpool.com",
   kitchenaid: "kitchenaid.com",
   ge:         "geappliances.com",
@@ -79,14 +80,6 @@ async function liveSearchManufacturerSite(
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
-  const genAI = new GoogleGenerativeAI(apiKey);
-
-  // Use gemini-3.6-flash with Google Search Grounding enabled
-  const model = genAI.getGenerativeModel({
-    model: "gemini-3.6-flash",
-    tools: [{ googleSearch: {} } as any],
-  });
-
   const query = `site:${domain} "${partNumber}" product specifications`;
   const prompt = `Search for the official manufacturer product page or specification sheet for part number "${partNumber}" from ${manufacturerName}.
 Use the query: ${query}
@@ -101,11 +94,27 @@ Respond in JSON:
 }`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const response = result.response;
+    const response = await fetch(`${GEMINI_API_BASE}/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+        tools: [{ googleSearch: {} }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Gemini search failed with HTTP ${response.status}: ${await response.text()}`);
+    }
+
+    const json = await response.json();
 
     // Extract grounding metadata (real URLs from Google Search)
-    const groundingMeta = (response as any).candidates?.[0]?.groundingMetadata;
+    const groundingMeta = json?.candidates?.[0]?.groundingMetadata;
     const groundingChunks: any[] = groundingMeta?.groundingChunks ?? [];
     const groundingSupports: any[] = groundingMeta?.groundingSupports ?? [];
 
@@ -122,7 +131,9 @@ Respond in JSON:
     // Also try parsing the LLM's text response for the URL
     let extractedText: string | null = null;
     try {
-      const text = response.text().replace(/```json|```/g, "").trim();
+      const text = String(json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "")
+        .replace(/```json|```/g, "")
+        .trim();
       const parsed = JSON.parse(text);
       if (!foundUrl && parsed.url && parsed.url !== "null") {
         foundUrl = parsed.url;
