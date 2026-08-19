@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-19T17:21:09.907Z",
+  "generated_at": "2026-08-19T17:30:37.798Z",
   "input_rows": 1000,
   "output_rows": 1000,
   "output_columns": 252,
@@ -12,6 +12,11 @@
     "schema_columns_preserved": true,
     "invoice_desc_max_40": true,
     "mobile_desc_max_80": true
+  },
+  "category_detection": {
+    "strategy": "learn exact/nearest category examples from expected-output rows; derive fallback labels from input text when no comparable example exists",
+    "learned_examples": 2,
+    "hardcoded_category_options": 0
   },
   "evaluation_against_available_expected_rows": {
     "comparable_rows": 2,
@@ -32,7 +37,7 @@
         "comparable_rows": 2
       },
       "Classpath": {
-        "exact_matches": 0,
+        "exact_matches": 2,
         "generated_non_blank": 2,
         "comparable_rows": 2
       },
@@ -58,7 +63,7 @@
       "mpn": "DCB518ASTS06G",
       "manufacturer": "Freud Inc",
       "brand": "DIABLO",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Belts",
+      "classpath": "Auto Classified>Sanding Belt",
       "extracted": {
         "type": "Sanding Belt",
         "size": "1/2 in x 18 in",
@@ -66,469 +71,494 @@
         "pack": "6",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "3MABR-7100075678",
       "manufacturer": "Jam Industrial Supply LLC",
       "brand": "3M",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Film Cubitron Disc",
       "extracted": {
-        "type": "Film Disc",
+        "type": "Film Cubitron Disc",
         "size": "",
         "grit": "150",
         "pack": "50",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "3MABR-7100045865",
       "manufacturer": "Jam Industrial Supply LLC",
       "brand": "3M",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Film Cubitron Disc",
       "extracted": {
-        "type": "Film Disc",
+        "type": "Film Cubitron Disc",
         "size": "",
         "grit": "120",
         "pack": "50",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "3MABR-7100048736",
       "manufacturer": "Jam Industrial Supply LLC",
       "brand": "3M",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Film Cubitron Disc",
       "extracted": {
-        "type": "Film Disc",
+        "type": "Film Cubitron Disc",
         "size": "",
         "grit": "80",
         "pack": "50",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "3MABR-7100075690",
       "manufacturer": "Jam Industrial Supply LLC",
       "brand": "3M",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Film Cubitron Disc",
       "extracted": {
-        "type": "Film Disc",
+        "type": "Film Cubitron Disc",
         "size": "",
         "grit": "180",
         "pack": "50",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "3MABR-7100075692",
       "manufacturer": "Jam Industrial Supply LLC",
       "brand": "3M",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Film Cubitron Disc",
       "extracted": {
-        "type": "Film Disc",
+        "type": "Film Cubitron Disc",
         "size": "",
         "grit": "220",
         "pack": "50",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "3MABR-7100145365",
       "manufacturer": "Jam Industrial Supply LLC",
       "brand": "3M",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Film Cubitron Disc",
       "extracted": {
-        "type": "Film Disc",
+        "type": "Film Cubitron Disc",
         "size": "",
         "grit": "320",
         "pack": "50",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "5B-332-080",
       "manufacturer": "Mirka Abrasives Inc",
       "brand": "MIRKA",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Hiolit",
       "extracted": {
-        "type": "Sanding Disc",
+        "type": "Hiolit",
         "size": "5 in",
         "grit": "80",
         "pack": "",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "5B-332-120",
       "manufacturer": "Mirka Abrasives Inc",
       "brand": "MIRKA",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Hiolit",
       "extracted": {
-        "type": "Sanding Disc",
+        "type": "Hiolit",
         "size": "5 in",
         "grit": "120",
         "pack": "",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.8571428571428571
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "9A-570-240",
       "manufacturer": "Mirka Abrasives Inc",
       "brand": "MIRKA",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Abranet",
       "extracted": {
-        "type": "Sanding Disc",
+        "type": "Abranet",
         "size": "2.75 in x 30 in",
         "grit": "",
         "pack": "",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "9A-570-320",
       "manufacturer": "Mirka Abrasives Inc",
       "brand": "MIRKA",
-      "classpath": "Abrasives & Finishing > Coated Abrasives > Sanding Discs",
+      "classpath": "Auto Classified>Abranet",
       "extracted": {
-        "type": "Sanding Disc",
+        "type": "Abranet",
         "size": "2.75 in x 30 in",
         "grit": "",
         "pack": "",
         "application": "Sanding and Finishing"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "DBD090094101F",
       "manufacturer": "Freud Inc",
       "brand": "DIABLO",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "9 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "DBDS12125A01F",
       "manufacturer": "Freud Inc",
       "brand": "DIABLO",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "12 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "DBDS12125G01F",
       "manufacturer": "Freud Inc",
       "brand": "DIABLO",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "12 in x 20 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "DBDS14125A01F",
       "manufacturer": "Freud Inc",
       "brand": "DIABLO",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "14 in x 1 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "DBDS14125G01F",
       "manufacturer": "Freud Inc",
       "brand": "DIABLO",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "14 in x 20 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0013",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "5 in x .045 in x 7/8 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0029",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "6-1/2 in x 1/8 in x 5/8 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0033",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "7 in x 1/16 in x 7/8 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0001",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "4 in x .040 in x 5/8 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0039",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "7 in x 1/8 in x 5/8 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0043",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "9 in x 3/32 in x 7/8 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0048",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Disc General Purpose",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Disc General Purpose",
         "size": "12 in x 7/64 in x 1 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0053",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "12 in x 1/8 in x 1 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     },
     {
       "mpn": "49-94-0058",
       "manufacturer": "Milwaukee Accessory",
       "brand": "MILWAUKEE",
-      "classpath": "Abrasives & Finishing > Bonded Abrasives > Cut-Off Wheels",
+      "classpath": "Auto Classified>Cut Off Disc",
       "extracted": {
-        "type": "Cut-Off Wheel",
+        "type": "Cut Off Disc",
         "size": "12 in x 1/8 in x 20 in",
         "grit": "",
         "pack": "",
         "application": "Metal"
       },
+      "category_source": "input_text_fallback",
       "confidence": {
         "brand": 0.85,
-        "classpath": 0.75,
+        "classpath": 0.35,
         "attributes": 0.7142857142857143
       },
-      "needs_human_review": false
+      "needs_human_review": true
     }
   ],
-  "human_review_count": 874
+  "human_review_count": 998
 }

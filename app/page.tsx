@@ -10,8 +10,6 @@ import Papa from "papaparse";
 // Types (mirrors the orchestrator response shape)
 // ---------------------------------------------------------------------------
 
-type Category = "auto" | "fasteners" | "electrical_connectors";
-
 interface ExtractedField {
   value: string | number;
   confidence: number;
@@ -73,7 +71,6 @@ interface SourceInput {
 export default function Home() {
   const [file,     setFile]     = useState<File | null>(null);
   const [rawText,  setRawText]  = useState("");
-  const [category, setCategory] = useState<Category>("auto");
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState<string | null>(null);
   const [result,   setResult]   = useState<PipelineResult | null>(null);
@@ -138,7 +135,7 @@ export default function Home() {
     try {
       const payload = {
         products: items,
-        categoryHint: category
+        categoryHint: "auto"
       };
       const res = await fetch("/api/process-batch", {
         method: "POST",
@@ -233,13 +230,13 @@ export default function Home() {
     try {
       let res;
       if (isMultiSource && !file) {
-        const payload = {
-          sources: sources.filter((s) => s.raw_text.trim()).map((s) => ({
-            source_name: s.source_name.trim() || "Unnamed Source",
-            source_type: s.source_type,
-            raw_text: s.raw_text.trim()
-          })),
-          categoryHint: category
+          const payload = {
+            sources: sources.filter((s) => s.raw_text.trim()).map((s) => ({
+              source_name: s.source_name.trim() || "Unnamed Source",
+              source_type: s.source_type,
+              raw_text: s.raw_text.trim()
+            })),
+          categoryHint: "auto"
         };
         res = await fetch("/api/process-product", {
           method: "POST",
@@ -250,7 +247,7 @@ export default function Home() {
         const body = new FormData();
         if (file)              body.append("file",     file);
         else                   body.append("text",     rawText.trim());
-        body.append("category", category);
+        body.append("category", "auto");
         res = await fetch("/api/process-product", { method: "POST", body });
       }
 
@@ -517,24 +514,6 @@ export default function Home() {
               </div>
             </>
           )}
-
-          {/* Category */}
-          <div>
-            <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-1">
-              Product category
-            </label>
-            <select
-              id="category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value as Category)}
-              className="w-full rounded-md border border-gray-300 bg-white px-3 py-2
-                         text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-400"
-            >
-              <option value="auto">🔍 Auto-detect</option>
-              <option value="fasteners">🔩 Fasteners (Bolts, Nuts, Screws)</option>
-              <option value="electrical_connectors">⚡ Electrical Connectors &amp; Terminal Blocks</option>
-            </select>
-          </div>
 
           {/* Error */}
           {error && (

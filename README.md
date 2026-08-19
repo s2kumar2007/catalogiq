@@ -31,20 +31,23 @@ The implemented slice focuses on the highest-value, demonstrable parts of the
 problem statement:
 
 - Standardizes placeholder brand fields and manufacturer names.
-- Detects canonical brands from noisy descriptions and manufacturer strings.
-- Classifies common abrasive/tool products into commerce-ready classpaths.
+- Detects brands from noisy descriptions and manufacturer strings.
+- Learns category examples from the expected-output rows and auto-derives a
+  reviewable fallback category from the product text when no labelled example
+  exists in the provided data.
 - Extracts product type, size, grit, package quantity, and application signals.
 - Builds mobile, invoice, short, long, retail, and attribute fields.
 - Preserves the expected 252-column delivery schema for downstream submission.
 - Flags low-confidence or generic classifications for human review in the
   report.
 
-The approach is intentionally schema-first: output columns come from the
-expected delivery file, and every generated value is constrained by simple
-rules instead of free-form invention. With the full reference workbooks
-available, the same structure can be extended by replacing the local maps with
-the official manufacturer/brand list, UOM table, decimal/fraction lookup, and
-LOV values.
+The approach is intentionally schema-first: output columns and category fields
+come from the provided CSVs. The current repo only includes two labelled
+expected-output examples, so unseen categories are not forced into a fixed
+taxonomy; they are marked as auto-classified and routed to human review. With a
+larger expected-output file containing the 240+ or 1200+ category examples, the
+same learner can use those rows directly without adding category dropdowns or
+hardcoded category options.
 
 ## Getting Started
 
