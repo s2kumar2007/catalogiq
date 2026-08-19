@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "enrich": "ts-node --project tsconfig.scripts.json -r tsconfig-paths/register scripts/unilog-enrich.ts",
+    "evaluate": "ts-node --project tsconfig.scripts.json -r tsconfig-paths/register scripts/evaluate.ts"
   },
   "dependencies": {
     "next": "14.2.35",
@@ -23,6 +25,8 @@
     "eslint-config-next": "14.2.35",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
     "typescript": "^5"
   }
 }

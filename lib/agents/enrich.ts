@@ -46,12 +46,19 @@ const MANUFACTURER_DOMAIN_MAP: Record<string, string> = {
 };
 
 function resolveCanonicalDomain(manufacturerName: string): string | null {
+  // 1. Exact match first (fastest, unambiguous)
   if (MANUFACTURER_DOMAIN_MAP[manufacturerName]) {
     return MANUFACTURER_DOMAIN_MAP[manufacturerName];
   }
   const lower = manufacturerName.toLowerCase();
+  // 2. One-directional substring: manufacturer name contains the key.
+  // We do NOT check key.includes(lower) — that direction matches short keys
+  // (e.g. "ge", "lg") inside any manufacturer name containing those letters,
+  // causing wrong-domain results like "Rheem Manufacturing" → "frigidaire.com".
+  // Minimum key length of 4 chars prevents false positives from short keys.
   for (const [key, domain] of Object.entries(MANUFACTURER_DOMAIN_MAP)) {
-    if (lower.includes(key.toLowerCase()) || key.toLowerCase().includes(lower)) {
+    const keyLower = key.toLowerCase();
+    if (keyLower.length >= 4 && lower.includes(keyLower)) {
       return domain;
     }
   }

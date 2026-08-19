@@ -10,6 +10,7 @@ import fs from "fs";
 import { callGemini, parseJsonResponse, GeminiContentPart } from "@/lib/gemini";
 import { EXTRACTION_SYSTEM_PROMPT } from "@/lib/prompts";
 import type { ExtractionResult, SchemaCategory } from "@/lib/types";
+import type { SchemaField } from "@/lib/agents/classify";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,6 +21,13 @@ export interface ExtractInput {
   imageBase64?: string;
   /** Hint from the caller. "auto" triggers keyword detection first. */
   category: "fasteners" | "electrical_connectors" | "auto";
+  /**
+   * LLM-generated schema fields from classify.ts.
+   * When provided, these are injected into the extraction prompt directly,
+   * replacing the static schema JSON files for the resolved category.
+   * This is the primary pipeline path; static JSON files are the fallback.
+   */
+  schemaFields?: SchemaField[];
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +108,23 @@ export async function runExtraction(input: ExtractInput): Promise<ExtractionResu
   // ── Build user parts ──────────────────────────────────────────────────────
   const userParts: GeminiContentPart[] = [];
 
-  if (resolvedCategory) {
+  if (input.schemaFields && input.schemaFields.length > 0) {
+    // Primary path: use LLM-generated schema fields from classify.ts.
+    // These are category-specific and replace the static JSON schema files.
+    const fieldList = input.schemaFields
+      .map((f) => `- ${f.label}${f.unit ? ` (unit: ${f.unit})` : ""}${f.required ? " [required]" : ""}`)
+      .join("\n");
+    userParts.push({
+      type: "text",
+      data:
+        `Extract ALL of the following category-specific attribute fields from the product input below.\n` +
+        `Use these EXACT label names as your field keys:\n\n${fieldList}\n\n` +
+        `Also extract: brand, manufacturer, part_number, and any other identifiable product identifiers.\n` +
+        `Set schema_match to the product category classpath.\n\n` +
+        `Product input:`,
+    });
+  } else if (resolvedCategory) {
+    // Fallback path: static JSON schema file for known categories.
     const schemaJson = loadSchemaJson(resolvedCategory);
     userParts.push({
       type: "text",

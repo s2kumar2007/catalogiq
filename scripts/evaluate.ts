@@ -2,15 +2,23 @@
  * scripts/evaluate.ts
  * Real evaluation against the Unilog Hackathon datasets.
  *
- * RUN:  npx ts-node --project tsconfig.json scripts/evaluate.ts
+ * RUN:  npx ts-node --project tsconfig.scripts.json scripts/evaluate.ts
+ *
+ * DATA FLOW — ground truth is NEVER passed into the pipeline:
+ *   Input CSV → rawText → classify → extract → normalize → format → predicted output
+ *   Expected Output CSV → loaded AFTER pipeline completes → used only for post-hoc scoring
+ *
+ * SCORING:
+ *   BLIND rows:      MPNs NOT in the Expected Output. This is the REAL accuracy metric.
+ *   SPOT-CHECK rows: MPNs that appear in the Expected Output (answer key visible to scorer,
+ *                    NOT to the pipeline). Reported separately — not blended into accuracy.
  *
  * What it does:
- *  1. Reads the 1000-row Input CSV and filters to dishwasher rows (n≈10)
- *  2. Reads the Expected Output CSV to get ground-truth rows (n=2 confirmed)
- *  3. Calls the classification + extraction + normalization pipeline for each row
- *  4. Scores n=2 rows on EXACT field-level accuracy vs ground truth
- *  5. Scores all n≈10 rows on FORMAT COMPLIANCE (char limits, UOM spacing, etc.)
- *  6. Reports both numbers separately to stdout
+ *  1. Reads the 1000-row Input CSV
+ *  2. Reads the Expected Output CSV to identify known MPNs (for split, not for pipeline input)
+ *  3. Calls classify + extract (with schema_fields wired from classify) + normalize + format
+ *  4. Reports blind accuracy separately from spot-check rows
+ *  5. Reports FORMAT COMPLIANCE for all rows
  */
 
 import * as fs from "fs";
@@ -143,6 +151,7 @@ async function main() {
   console.log(`Expected Output rows (ground truth): ${outputRows.length - 1} valid\n`);
 
   // Ground truth: rows from Expected Output matched by MPN
+  // ONLY used for post-hoc scoring after the pipeline runs — NEVER passed into pipeline stages.
   const groundTruthByMPN: Record<string, Record<string, string>> = {};
   for (const row of outputRows) {
     const mpn = row["Mfg_Part_Num"] ?? row["MANUFACTURER_PART_NUMBER"];
@@ -150,9 +159,18 @@ async function main() {
       groundTruthByMPN[mpn.trim()] = extractGroundTruthAttributes(row);
     }
   }
+  const knownMPNs = new Set(Object.keys(groundTruthByMPN));
+
+  console.log(`Dishwasher rows found in input: ${dishwasherInputRows.length}`);
+  console.log(`Known GT MPNs (excluded from accuracy): ${knownMPNs.size}`);
+  console.log(`Blind rows (will be scored as accuracy): ${dishwasherInputRows.filter((r) => !knownMPNs.has((r["Mfg_Part_Num"] ?? "").trim())).length}\n`);
 
   // ── Run pipeline on each dishwasher row ──────────────────────────────────
-  const exactMatchResults: { mpn: string; accuracy: number; mismatches: string[] }[] = [];
+  // BLIND: MPNs not in ground truth → accuracy metric
+  // SPOT-CHECK: known MPNs → separate report, not blended into accuracy
+  const blindResults:     { mpn: string; accuracy: number; mismatches: string[] }[] = [];
+  const spotCheckResults: { mpn: string; accuracy: number; mismatches: string[] }[] = [];
+  const exactMatchResults: { mpn: string; accuracy: number; mismatches: string[] }[] = []; // kept for compat
   const complianceResults: { mpn: string; mobileLenOk: boolean; uomOk: boolean; noPlaceholders: boolean }[] = [];
 
   for (const row of dishwasherInputRows) {
@@ -175,22 +193,22 @@ async function main() {
       const classResult = await runClassification({ rawText });
       console.log(`  Classpath: ${classResult.classpath} (confidence: ${classResult.confidence}%)`);
 
-      // Stage 1: Extract using LLM-generated schema fields as guidance
-      const schemaHint =
-        classResult.schema_fields.length > 0
-          ? `\nRequired attribute fields for this category:\n${classResult.schema_fields.map((f) => `- ${f.label}`).join("\n")}`
-          : "";
-
+      // Stage 1: Extract — schema_fields from classify flow directly into extract
+      // (this is the wired pipeline path; no static schema JSON file needed)
       const extractResult = await runExtraction({
-        rawText: rawText + schemaHint,
+        rawText,
         category: "auto",
+        schemaFields: classResult.schema_fields,
       });
 
       // Stage 6: Normalize
       const normResult = await runNormalization(extractResult.extracted_fields);
 
-      // Stage 7: Format (delivery descriptions)
-      const fmtResult = await runFormatting(normResult.normalized_fields);
+      // Stage 7: Format with classification result (for dynamic attributes)
+      const fmtResult = await runFormatting({
+        normalizedFields: normResult.normalized_fields,
+        classificationResult: classResult,
+      });
       const formats   = fmtResult.delivery_formats;
 
       // Build predicted attributes map from normalized fields
@@ -216,20 +234,24 @@ async function main() {
         noPlaceholders: compliance.noPlaceholders,
       });
 
-      // Exact-match scoring (only for rows with ground truth)
+      // Exact-match scoring
       if (groundTruthByMPN[mpn]) {
+        const isKnown = knownMPNs.has(mpn);
         const score = fieldAccuracy(predictedAttrs, groundTruthByMPN[mpn]);
         const pct   = score.total > 0 ? ((score.matched / score.total) * 100).toFixed(1) : "N/A";
-        console.log(`  ✓ Ground truth available → Field accuracy: ${pct}% (${score.matched}/${score.total})`);
+        const label = isKnown ? "spot-check" : "blind";
+        console.log(`  ✓ Ground truth available [${label}] → Field accuracy: ${pct}% (${score.matched}/${score.total})`);
         if (score.mismatches.length > 0) {
-          console.log("  Mismatches:");
+          console.log(`  Mismatches (${label}):`);
           score.mismatches.slice(0, 5).forEach((m) => console.log(m));
         }
-        exactMatchResults.push({
-          mpn,
-          accuracy: score.total > 0 ? score.matched / score.total : 0,
-          mismatches: score.mismatches,
-        });
+        const entry = { mpn, accuracy: score.total > 0 ? score.matched / score.total : 0, mismatches: score.mismatches };
+        if (isKnown) {
+          spotCheckResults.push(entry);
+        } else {
+          blindResults.push(entry);
+          exactMatchResults.push(entry); // kept for compat
+        }
       } else {
         console.log(`  (no ground truth for ${mpn} — compliance only)`);
       }
@@ -244,18 +266,25 @@ async function main() {
   console.log("EVALUATION RESULTS");
   console.log("==========================================\n");
 
-  if (exactMatchResults.length > 0) {
-    const avgAcc = exactMatchResults.reduce((s, r) => s + r.accuracy, 0) / exactMatchResults.length;
-    console.log(`1. EXACT-MATCH ACCURACY (n=${exactMatchResults.length} ground-truth rows)`);
-    console.log(`   Average field accuracy: ${(avgAcc * 100).toFixed(1)}%`);
-    exactMatchResults.forEach((r) => {
-      console.log(`   ${r.mpn}: ${(r.accuracy * 100).toFixed(1)}%`);
-    });
+  console.log("1. BLIND ACCURACY — the real metric (MPNs not in ground truth)");
+  if (blindResults.length > 0) {
+    const avgAcc = blindResults.reduce((s, r) => s + r.accuracy, 0) / blindResults.length;
+    console.log(`   n=${blindResults.length} rows | Average: ${(avgAcc * 100).toFixed(1)}%`);
+    blindResults.forEach((r) => console.log(`   ${r.mpn}: ${(r.accuracy * 100).toFixed(1)}%`));
   } else {
-    console.log("1. EXACT-MATCH ACCURACY: No ground-truth rows matched by MPN.");
+    console.log(`   n=0 — all scored rows were known MPNs (check your dataset split)`);
   }
 
-  console.log(`\n2. CATEGORY-LEVEL COMPLIANCE (n=${complianceResults.length} dishwasher rows)`);
+  console.log(`\n2. SPOT-CHECK — known MPNs (NOT blended into accuracy metric)`);
+  if (spotCheckResults.length > 0) {
+    const avgAcc = spotCheckResults.reduce((s, r) => s + r.accuracy, 0) / spotCheckResults.length;
+    console.log(`   n=${spotCheckResults.length} rows | Average: ${(avgAcc * 100).toFixed(1)}%`);
+    spotCheckResults.forEach((r) => console.log(`   ${r.mpn}: ${(r.accuracy * 100).toFixed(1)}%`));
+  } else {
+    console.log(`   n=0 — no known MPNs in evaluated set`);
+  }
+
+  console.log(`\n3. FORMAT COMPLIANCE (n=${complianceResults.length} dishwasher rows)`);
   const mobilePct  = (complianceResults.filter((r) => r.mobileLenOk).length    / complianceResults.length * 100).toFixed(0);
   const uomPct     = (complianceResults.filter((r) => r.uomOk).length           / complianceResults.length * 100).toFixed(0);
   const placePct   = (complianceResults.filter((r) => r.noPlaceholders).length  / complianceResults.length * 100).toFixed(0);
