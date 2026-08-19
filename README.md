@@ -1,4 +1,50 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CatalogIQ
+
+CatalogIQ is a Unilog product-content enrichment prototype. It turns messy
+industrial catalogue rows into the provided Unilog delivery format while keeping
+the process measurable and traceable.
+
+## Unilog Batch Solution
+
+The challenge materials say the reference documents are supporting resources,
+and that the important processing files are the input and expected output
+datasets in `Data/`. This repo therefore uses:
+
+- `Data/Unihack_ Sample Dataset - Input.csv` as the 1,000-row working input.
+- `Data/Unihack_ Expected Output - Delivery Format (1).csv` as the 252-column
+  delivery schema and available ground-truth example rows.
+
+Run the enrichment pipeline:
+
+```bash
+node scripts/unilog-enrich.js
+```
+
+Generated files:
+
+- `outputs/catalogiq_unilog_delivery.csv` - 1,000 enriched rows in the exact
+  delivery-column order.
+- `outputs/catalogiq_unilog_report.json` - run summary, format checks,
+  available ground-truth comparison, and trace samples.
+
+The implemented slice focuses on the highest-value, demonstrable parts of the
+problem statement:
+
+- Standardizes placeholder brand fields and manufacturer names.
+- Detects canonical brands from noisy descriptions and manufacturer strings.
+- Classifies common abrasive/tool products into commerce-ready classpaths.
+- Extracts product type, size, grit, package quantity, and application signals.
+- Builds mobile, invoice, short, long, retail, and attribute fields.
+- Preserves the expected 252-column delivery schema for downstream submission.
+- Flags low-confidence or generic classifications for human review in the
+  report.
+
+The approach is intentionally schema-first: output columns come from the
+expected delivery file, and every generated value is constrained by simple
+rules instead of free-form invention. With the full reference workbooks
+available, the same structure can be extended by replacing the local maps with
+the official manufacturer/brand list, UOM table, decimal/fraction lookup, and
+LOV values.
 
 ## Getting Started
 
