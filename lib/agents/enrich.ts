@@ -81,9 +81,9 @@ async function liveSearchManufacturerSite(
 
   const genAI = new GoogleGenerativeAI(apiKey);
 
-  // Use gemini-1.5-flash with Google Search Grounding enabled
+  // Use gemini-3.6-flash with Google Search Grounding enabled
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-3.6-flash",
     tools: [{ googleSearch: {} } as any],
   });
 

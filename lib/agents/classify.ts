@@ -74,7 +74,7 @@ export async function runClassification(
   const genAI = new GoogleGenerativeAI(apiKey);
   // Use the correct, current Gemini model name
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-3.6-flash",
     systemInstruction: SYSTEM_PROMPT,
     generationConfig: {
       temperature: 0.1,
