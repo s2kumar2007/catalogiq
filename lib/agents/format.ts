@@ -12,6 +12,12 @@
  *  - This module maps schema_fields → extraAttributes using the normalized values,
  *    producing category-appropriate attributes (e.g., Wash Cycles for dishwashers,
  *    Thread Size for fasteners) instead of the old hardcoded 7-slot abrasives template.
+ *
+ *  - schemaMatch is passed through to buildUnilogDeliveryRecord() so that rows
+ *    which never received category-specific schema fields (e.g. classification
+ *    failed or was rate-limited, falling back to generic extraction) are reliably
+ *    flagged needs_human_review downstream, instead of only being caught
+ *    incidentally by the manufacturer/brand/source checks.
  */
 
 import { DeliveryFormats, ExtractedField, UnilogDeliveryRecord } from "@/lib/types";
@@ -154,6 +160,10 @@ export async function runFormatting(
       officialSourceData?.["Product Image"] ||
       officialSourceData?.["Alternate Image 1"]
     ),
+    // Passed through so unilog-format.js can flag needs_human_review when
+    // classification never produced real category-specific schema fields
+    // (e.g. rate-limited / degraded to generic extraction) — see fix note above.
+    schemaMatch: classificationResult?.classpath ?? "none",
   });
 
   const attributes: string[] = [];
