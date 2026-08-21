@@ -119,9 +119,15 @@ export default function Home() {
         complete: async (results) => {
           const items = (results.data as any[])
             .map((row) => {
-              const name = row.product_name ?? "";
-              const text = row.raw_text ?? "";
-              return { raw_text: name ? `Product: ${name}\n\n${text}` : text };
+              const name = row.product_name ?? row.Mfg_Part_Num ?? "";
+              const text = row.raw_text ?? row.Part_Desc ?? "";
+              const manuf = row.Part_Manuf ?? row.E1_Brand ?? "";
+              const combined = [
+                name ? `MPN: ${name}` : null,
+                text ? `Description: ${text}` : null,
+                manuf ? `Manufacturer: ${manuf}` : null,
+              ].filter(Boolean).join("\n");
+              return { raw_text: combined };
             })
             .filter((item) => item.raw_text.trim());
 
@@ -222,8 +228,9 @@ export default function Home() {
                   style={{ color: "var(--text-secondary)" }}
                 />
                 <p className="mt-2 text-xs" style={{ color: "var(--text-muted)" }}>
-                  CSV columns: <span style={{ color: "var(--accent-cyan)" }}>product_name</span>,{" "}
-                  <span style={{ color: "var(--accent-cyan)" }}>raw_text</span>
+                  CSV columns: <span style={{ color: "var(--accent-cyan)" }}>Mfg_Part_Num</span>,{" "}
+                  <span style={{ color: "var(--accent-cyan)" }}>Part_Desc</span>,{" "}
+                  <span style={{ color: "var(--accent-cyan)" }}>Part_Manuf</span> (or generic product_name / raw_text)
                 </p>
                 {batchCsvFile && (
                   <div className="mt-3 flex items-center gap-2 animate-fade-in">
