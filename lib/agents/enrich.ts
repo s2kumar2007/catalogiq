@@ -2,9 +2,9 @@
  * lib/agents/enrich.ts
  * Stage 5: Enrichment Agent
  *
- * Uses Gemini's Google Search Grounding to perform a REAL live web search
+ * Uses Tavily Search API to perform a REAL live web search
  * restricted to the manufacturer's official domain (`site:<domain> <partNumber>`).
- * The URL returned by Gemini's grounded search is then validated with a strict
+ * The URL returned by Tavily's grounded search is then validated with a strict
  * hostname allowlist check before being accepted.
  *
  * Two failure modes are both explicitly flagged:
@@ -12,7 +12,7 @@
  *   B) Returned URL is on the wrong domain → "needs review - domain mismatch"
  */
 
-const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const TAVILY_API_BASE = "https://api.tavily.com/search";
 
 export interface EnrichmentInput {
   manufacturerName: string;
@@ -86,7 +86,7 @@ function validateDomain(url: string, expectedDomain: string): boolean {
 }
 
 /**
- * Performs a REAL live Google Search via Gemini's Search Grounding tool,
+ * Performs a REAL live web search via Tavily Search API,
  * scoped to the manufacturer's official domain using site: operator.
  * Returns the first grounded citation URL, or null if nothing was found.
  */
@@ -95,75 +95,39 @@ async function liveSearchManufacturerSite(
   partNumber: string,
   manufacturerName: string
 ): Promise<{ url: string | null; extractedText: string | null }> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) throw new Error("TAVILY_API_KEY not set");
 
-  const query = `site:${domain} "${partNumber}" product specifications`;
-  const prompt = `Search for the official manufacturer product page or specification sheet for part number "${partNumber}" from ${manufacturerName}.
-Use the query: ${query}
-
-Return the URL of the most relevant official product page, spec sheet, or support page you find.
-If you find product specifications (voltage, dimensions, sound level, wash cycles, etc.), extract them.
-
-Respond in JSON:
-{
-  "url": "the exact URL found, or null if nothing found",
-  "specs": { "key": "value" }
-}`;
+  const query = `${partNumber} product specifications site:${domain}`;
 
   try {
-    const response = await fetch(`${GEMINI_API_BASE}/gemini-3.6-flash:generateContent?key=${apiKey}`, {
+    const response = await fetch(TAVILY_API_BASE, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        tools: [{ googleSearch: {} }],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: "application/json",
-        },
+        api_key: apiKey,
+        query,
+        search_depth: "advanced",
+        include_domains: [domain],
+        max_results: 3,
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Gemini search failed with HTTP ${response.status}: ${await response.text()}`);
+      throw new Error(`Tavily search failed with HTTP ${response.status}: ${await response.text()}`);
     }
 
     const json = await response.json();
+    const results: any[] = json?.results ?? [];
 
-    // Extract grounding metadata (real URLs from Google Search)
-    const groundingMeta = json?.candidates?.[0]?.groundingMetadata;
-    const groundingChunks: any[] = groundingMeta?.groundingChunks ?? [];
-    const groundingSupports: any[] = groundingMeta?.groundingSupports ?? [];
-
-    // Find the first citation URL from grounding
-    let foundUrl: string | null = null;
-    for (const chunk of groundingChunks) {
-      const uri = chunk?.web?.uri;
-      if (uri && typeof uri === "string") {
-        foundUrl = uri;
-        break;
-      }
+    if (results.length === 0) {
+      return { url: null, extractedText: null };
     }
 
-    // Also try parsing the LLM's text response for the URL
-    let extractedText: string | null = null;
-    try {
-      const text = String(json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "")
-        .replace(/```json|```/g, "")
-        .trim();
-      const parsed = JSON.parse(text);
-      if (!foundUrl && parsed.url && parsed.url !== "null") {
-        foundUrl = parsed.url;
-      }
-      if (parsed.specs && Object.keys(parsed.specs).length > 0) {
-        extractedText = JSON.stringify(parsed.specs);
-      }
-    } catch {
-      // LLM returned non-JSON — that's ok, we still have grounding URL
-    }
+    const best = results[0];
+    const extractedText = best?.content ? JSON.stringify({ raw_content: best.content }) : null;
 
-    return { url: foundUrl, extractedText };
+    return { url: best?.url ?? null, extractedText };
   } catch (err) {
     console.error("[enrich] Live search error:", err);
     return { url: null, extractedText: null };
