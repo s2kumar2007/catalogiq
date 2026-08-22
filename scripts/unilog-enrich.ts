@@ -269,6 +269,12 @@ async function main() {
       for (const [k, v] of Object.entries(normResult.normalized_fields)) {
         predictedAttrs[k] = String(v.value);
       }
+      for (let i = 1; i <= 50; i++) {
+        const label = deliveryRecord[`ATTRIBUTE_LABEL ${i}`];
+        const value = deliveryRecord[`ATTRIBUTE_VALUE ${i}`];
+        if (label) predictedAttrs[label] = value ?? "";
+      }
+      
       predictedAttrs["MOBILE_DESC"]  = fmtResult.delivery_formats.mobile_desc  ?? "";
       predictedAttrs["SHORT_DESC"]   = fmtResult.delivery_formats.short_desc   ?? "";
       predictedAttrs["LONG_DESC1"]   = fmtResult.delivery_formats.long_desc    ?? "";

@@ -120,6 +120,9 @@ contains words like "Cooperative", "Supply", "Dealers", "Group", "LLC",
 IMPORTANT RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+• CONFIDENCE FORMAT: Confidence must be a plain integer (e.g. 90), never spelled
+  out as a word (never "ninety").
+
 • CONFIDENCE CAP: Never output confidence = 100. Reserve 90–99 for values
   that are explicitly and unambiguously stated with zero OCR/scan ambiguity.
 

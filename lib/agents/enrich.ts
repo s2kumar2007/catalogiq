@@ -2,15 +2,19 @@
  * lib/agents/enrich.ts
  * Stage 5: Enrichment Agent
  *
- * Uses Tavily Search API to perform a REAL live web search
- * restricted to the manufacturer's official domain (`site:<domain> <partNumber>`).
- * The URL returned by Tavily's grounded search is then validated with a strict
- * hostname allowlist check before being accepted.
+ * Dynamically discovers a manufacturer's official domain via Tavily Search
+ * (no hardcoded manufacturer→domain list — scales to any brand in the dataset),
+ * verifies the discovered domain isn't a known retailer/marketplace, then
+ * performs a second, domain-restricted search for the actual product page.
+ * Raw page content is then parsed by Groq into structured attribute values.
  *
- * Two failure modes are both explicitly flagged:
- *   A) Zero/no results from live search  → "needs review - no results"
- *   B) Returned URL is on the wrong domain → "needs review - domain mismatch"
+ * Three failure modes are explicitly flagged:
+ *   A) No plausible official domain could be discovered for the manufacturer
+ *   B) Zero product-page results found on the discovered domain
+ *   C) Returned product URL doesn't match the discovered domain (defense in depth)
  */
+
+import { callGroq, parseJsonResponse } from "@/lib/groq";
 
 const TAVILY_API_BASE = "https://api.tavily.com/search";
 
@@ -23,78 +27,107 @@ export interface EnrichmentResult {
   officialDataFound: boolean;
   status: string;
   sourceUrl?: string;
+  discoveredDomain?: string;
   extractedAttributes?: Record<string, string>;
 }
 
-// ── Manufacturer → canonical domain map ──────────────────────────────────────
-// Manufacturer or brand names mapped to their own official domains.
-// Do not infer manufacturer domains from distributor fields in sample rows.
-const MANUFACTURER_DOMAIN_MAP: Record<string, string> = {
-  "Rheem Manufacturing":                   "rheem.com",
-  "Whirlpool Corporation":                 "whirlpool.com",
-  "Jam Industrial Supply LLC (JAMIN)":     "3m.com",
-  "Freud Inc (2435)":                      "diablotools.com",
-  // Common brand name variants for broader matching
-  frigidaire: "frigidaire.com",
-  rheem:      "rheem.com",
-  whirlpool:  "whirlpool.com",
-  kitchenaid: "kitchenaid.com",
-  ge:         "geappliances.com",
-  lg:         "lg.com",
-  samsung:    "samsung.com",
-  bosch:      "bosch-home.com",
-};
+// Retailers/marketplaces/distributors that must never be accepted as an
+// "official manufacturer domain," even if they rank highly in search.
+const KNOWN_RETAILER_BLOCKLIST = [
+  "amazon.com", "homedepot.com", "lowes.com", "walmart.com", "ebay.com",
+  "wayfair.com", "target.com", "bestbuy.com", "grainger.com", "menards.com",
+  "acehardware.com", "build.com", "ferguson.com", "supplyhouse.com",
+  "alibaba.com", "aliexpress.com", "wikipedia.org", "youtube.com",
+];
 
-function resolveCanonicalDomain(manufacturerName: string): string | null {
-  const normalizedInput = manufacturerName.toLowerCase().replace(/\s+/g, "");
+// In-memory cache: manufacturer name → discovered domain (or null = tried,
+// nothing found). Avoids re-discovering the same brand's domain on every
+// row within a single pipeline run.
+const domainDiscoveryCache = new Map<string, string | null>();
 
-  // 1. Exact match first (fastest, unambiguous)
-  if (MANUFACTURER_DOMAIN_MAP[manufacturerName]) {
-    return MANUFACTURER_DOMAIN_MAP[manufacturerName];
+function isBlockedDomain(hostname: string): boolean {
+  const clean = hostname.replace(/^www\./, "");
+  return KNOWN_RETAILER_BLOCKLIST.some(
+    (bad) => clean === bad || clean.endsWith(`.${bad}`)
+  );
+}
+
+/**
+ * Searches for "<manufacturer> official website" and returns the first
+ * result whose domain isn't a known retailer/marketplace. This replaces
+ * a static manufacturer→domain map so any brand in the dataset can be
+ * resolved, not just a pre-curated handful.
+ */
+async function discoverManufacturerDomain(
+  manufacturerName: string
+): Promise<string | null> {
+  if (domainDiscoveryCache.has(manufacturerName)) {
+    return domainDiscoveryCache.get(manufacturerName)!;
   }
-  
-  // 1b. Normalized exact match (handles casing and spacing e.g., "Kitchen Aid" -> "kitchenaid")
-  for (const [key, domain] of Object.entries(MANUFACTURER_DOMAIN_MAP)) {
-    if (normalizedInput === key.toLowerCase().replace(/\s+/g, "")) {
-      return domain;
+
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) throw new Error("TAVILY_API_KEY not set");
+
+  try {
+    const response = await fetch(TAVILY_API_BASE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: `${manufacturerName} official website`,
+        search_depth: "basic",
+        max_results: 5,
+      }),
+    });
+
+    if (!response.ok) {
+      domainDiscoveryCache.set(manufacturerName, null);
+      return null;
     }
-  }
 
-  const lower = manufacturerName.toLowerCase();
-  // 2. One-directional substring: manufacturer name contains the key.
-  // Minimum key length of 4 chars prevents false positives from short keys (e.g., "ge" inside "general").
-  // For short keys, we use a word-boundary regex to safely match them (e.g., "LG Electronics" -> matches "lg").
-  for (const [key, domain] of Object.entries(MANUFACTURER_DOMAIN_MAP)) {
-    const keyLower = key.toLowerCase();
-    if (keyLower.length >= 4) {
-      if (lower.includes(keyLower)) return domain;
-    } else {
-      const regex = new RegExp(`\\b${keyLower}\\b`);
-      if (regex.test(lower)) return domain;
+    const json = await response.json();
+    const results: any[] = json?.results ?? [];
+
+    for (const r of results) {
+      try {
+        const hostname = new URL(r.url).hostname.replace(/^www\./, "");
+        if (!isBlockedDomain(hostname)) {
+          domainDiscoveryCache.set(manufacturerName, hostname);
+          return hostname;
+        }
+      } catch {
+        // skip malformed URLs from search results
+      }
     }
+
+    domainDiscoveryCache.set(manufacturerName, null);
+    return null;
+  } catch (err) {
+    console.error("[enrich] Domain discovery error:", err);
+    domainDiscoveryCache.set(manufacturerName, null);
+    return null;
   }
-  return null;
 }
 
 function validateDomain(url: string, expectedDomain: string): boolean {
   try {
     const { hostname } = new URL(url);
-    return hostname === expectedDomain || hostname.endsWith(`.${expectedDomain}`);
+    const clean = hostname.replace(/^www\./, "");
+    return clean === expectedDomain || clean.endsWith(`.${expectedDomain}`);
   } catch {
     return false;
   }
 }
 
 /**
- * Performs a REAL live web search via Tavily Search API,
- * scoped to the manufacturer's official domain using site: operator.
- * Returns the first grounded citation URL, or null if nothing was found.
+ * Searches for the specific product page on the (already discovered and
+ * verified) manufacturer domain. Returns the first result's URL and raw
+ * page content, or nulls if nothing was found.
  */
-async function liveSearchManufacturerSite(
+async function searchProductOnDomain(
   domain: string,
-  partNumber: string,
-  manufacturerName: string
-): Promise<{ url: string | null; extractedText: string | null }> {
+  partNumber: string
+): Promise<{ url: string | null; rawContent: string | null }> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error("TAVILY_API_KEY not set");
 
@@ -121,16 +154,35 @@ async function liveSearchManufacturerSite(
     const results: any[] = json?.results ?? [];
 
     if (results.length === 0) {
-      return { url: null, extractedText: null };
+      return { url: null, rawContent: null };
     }
 
     const best = results[0];
-    const extractedText = best?.content ? JSON.stringify({ raw_content: best.content }) : null;
-
-    return { url: best?.url ?? null, extractedText };
+    return { url: best?.url ?? null, rawContent: best?.content ?? null };
   } catch (err) {
-    console.error("[enrich] Live search error:", err);
-    return { url: null, extractedText: null };
+    console.error("[enrich] Product search error:", err);
+    return { url: null, rawContent: null };
+  }
+}
+
+/**
+ * Parses raw webpage text into structured attribute key-value pairs
+ * using Groq. Returns {} on any failure — enrichment still succeeds
+ * (URL was found and verified), just without extracted specs.
+ */
+async function parseSpecsFromContent(
+  rawContent: string,
+  partNumber: string
+): Promise<Record<string, string>> {
+  const systemPrompt = `You extract product specification key-value pairs from raw webpage text. Return ONLY valid JSON: a flat object mapping attribute names to their values (e.g. {"Voltage Rating": "120 V", "Sound Level": "47 dBA"}). If no specs are found, return {}.`;
+  const userPrompt = `Extract product specifications for part number "${partNumber}" from this webpage text:\n\n${rawContent.slice(0, 4000)}`;
+
+  try {
+    const response = await callGroq(systemPrompt, userPrompt, undefined, undefined, 1024);
+    return parseJsonResponse<Record<string, string>>(response);
+  } catch (err) {
+    console.warn("[enrich] Spec parsing failed:", err);
+    return {};
   }
 }
 
@@ -144,53 +196,66 @@ export async function runEnrichment(input: EnrichmentInput): Promise<EnrichmentR
     };
   }
 
-  // 1. Resolve canonical domain
-  const canonicalDomain = resolveCanonicalDomain(manufacturerName);
-  if (!canonicalDomain) {
+  const normalizedManuf = manufacturerName.trim();
+  const isPlaceholder = /^--\s*unbranded\s*--$|^unbranded$/i.test(normalizedManuf);
+  if (!normalizedManuf || isPlaceholder) {
     return {
       officialDataFound: false,
-      status: `needs review - no canonical domain known for manufacturer: "${manufacturerName}"`,
+      status: `needs review - no identifiable manufacturer/brand (value: "${manufacturerName}")`,
     };
   }
 
-  // 2. Real live search via Gemini Google Search Grounding
-  const { url: candidateUrl, extractedText } = await liveSearchManufacturerSite(
-    canonicalDomain,
-    partNumber,
-    manufacturerName
+  // 1. Dynamically discover the manufacturer's official domain
+  const discoveredDomain = await discoverManufacturerDomain(normalizedManuf);
+
+  // Failure mode A: no plausible official domain found
+  if (!discoveredDomain) {
+    return {
+      officialDataFound: false,
+      status: `needs review - could not discover an official domain for manufacturer: "${normalizedManuf}"`,
+    };
+  }
+
+  // 2. Search for the specific product page on that domain
+  const { url: candidateUrl, rawContent } = await searchProductOnDomain(
+    discoveredDomain,
+    partNumber
   );
 
-  // Failure mode A: zero results from live search
+  // Failure mode B: zero product-page results
   if (!candidateUrl) {
     return {
       officialDataFound: false,
-      status: `needs review - live search returned no results on ${canonicalDomain} for part "${partNumber}"`,
+      status: `needs review - live search returned no results on ${discoveredDomain} for part "${partNumber}"`,
+      discoveredDomain,
     };
   }
 
-  // Failure mode B: URL returned but domain doesn't match allowlist
-  if (!validateDomain(candidateUrl, canonicalDomain)) {
+  // Failure mode C: defense in depth — confirm the returned URL really is
+  // on the discovered domain (include_domains should already guarantee this,
+  // but verify explicitly rather than trusting the API silently).
+  if (!validateDomain(candidateUrl, discoveredDomain)) {
     let returnedHostname = "unknown";
     try {
       returnedHostname = new URL(candidateUrl).hostname;
     } catch {}
     return {
       officialDataFound: false,
-      status: `needs review - domain mismatch: live search returned "${returnedHostname}", expected "${canonicalDomain}"`,
+      status: `needs review - domain mismatch: live search returned "${returnedHostname}", expected "${discoveredDomain}"`,
+      discoveredDomain,
     };
   }
 
-  // Both checks passed — official URL verified
+  // All checks passed — official URL discovered and verified
   const result: EnrichmentResult = {
     officialDataFound: true,
-    status: `success - official URL found and domain verified (${canonicalDomain})`,
+    status: `success - official domain discovered and verified (${discoveredDomain})`,
     sourceUrl: candidateUrl,
+    discoveredDomain,
   };
 
-  if (extractedText) {
-    try {
-      result.extractedAttributes = JSON.parse(extractedText);
-    } catch {}
+  if (rawContent) {
+    result.extractedAttributes = await parseSpecsFromContent(rawContent, partNumber);
   }
 
   return result;
