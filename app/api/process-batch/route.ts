@@ -14,15 +14,16 @@
  * Concurrency is set to 1 to avoid Groq TPM limits on the free tier.
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { runClassification }         from "@/lib/agents/classify";
-import { runExtraction }             from "@/lib/agents/extract";
-import { runValidation }             from "@/lib/agents/validate";
-import { runGapResolution }          from "@/lib/agents/gap-resolve";
-import { runEnrichment }             from "@/lib/agents/enrich";
-import { runNormalization }          from "@/lib/agents/normalize";
-import { runFormatting }             from "@/lib/agents/format";
-import type { ExtractedField }       from "@/lib/types";
+import { NextRequest, NextResponse }  from "next/server";
+import { runClassification }          from "@/lib/agents/classify";
+import { runExtraction }              from "@/lib/agents/extract";
+import { runValidation }              from "@/lib/agents/validate";
+import { runGapResolution }           from "@/lib/agents/gap-resolve";
+import { runEnrichment }              from "@/lib/agents/enrich";
+import { runNormalization }           from "@/lib/agents/normalize";
+import { runFormatting }              from "@/lib/agents/format";
+import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "@/lib/pipeline-utils";
+import type { ExtractedField }        from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -143,19 +144,10 @@ async function processSingleProduct(
 
   // ── 5. Enrichment ─────────────────────────────────────────────────────────
   let enrichmentResult = null;
-  const manufKey = Object.keys(finalExtractedFields).find(
-    (k) => k === "MANUFACTURER_NAME" || k === "Part_Manuf" || k.toLowerCase().includes("manuf")
-  );
-  const mpnKey = Object.keys(finalExtractedFields).find(
-    (k) =>
-      k === "MANUFACTURER_PART_NUMBER" ||
-      k === "Mfg_Part_Num" ||
-      k === "mfg_part_num" ||
-      k.toLowerCase().includes("part_num") ||
-      k.toLowerCase().includes("mpn")
-  );
-  const manuf = manufKey ? String(finalExtractedFields[manufKey]?.value ?? "") : undefined;
-  const mpn   = mpnKey   ? String(finalExtractedFields[mpnKey]?.value ?? "")   : undefined;
+  const brandResolved = resolveBrandForEnrichment(finalExtractedFields);
+  const mpnResolved   = resolveMpnForEnrichment(finalExtractedFields);
+  const manuf = brandResolved?.name;
+  const mpn   = mpnResolved?.mpn;
 
   if (manuf && mpn) {
     try {
@@ -167,7 +159,7 @@ async function processSingleProduct(
     }
   } else {
     pipelineWarnings.push(
-      `Enrichment skipped: could not resolve manufacturer (${manufKey ?? "none"}) or MPN (${mpnKey ?? "none"}) from extracted fields.`
+      `Enrichment skipped: could not resolve brand (${brandResolved?.sourceKey ?? "none"}) or MPN (${mpnResolved?.sourceKey ?? "none"}) from extracted fields.`
     );
   }
 

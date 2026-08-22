@@ -26,7 +26,7 @@
  * It is NEVER passed into the pipeline as input. Ground-truth MPNs are excluded
  * from the accuracy metric (see evaluation section at the bottom).
  */
-
+import { runEnrichment } from "../lib/agents/enrich";
 import * as fs from "fs";
 import * as path from "path";
 import { loadEnvConfig } from "@next/env";
@@ -39,6 +39,7 @@ import { runClassification } from "../lib/agents/classify";
 import { runExtraction }     from "../lib/agents/extract";
 import { runNormalization }  from "../lib/agents/normalize";
 import { runFormatting }     from "../lib/agents/format";
+import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "../lib/pipeline-utils";
 
 // ── unilog-format.js utility imports (CommonJS, required via moduleResolution) ─
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -59,7 +60,7 @@ const OUTPUT_CSV = path.join(OUT_DIR, "catalogiq_unilog_delivery.csv");
 const REPORT_JSON= path.join(OUT_DIR, "catalogiq_unilog_report.json");
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-const DELAY_MS = 8000; // keep Groq free-tier TPM usage stable across multi-call rows
+const DELAY_MS = 12000; // keep Groq free-tier TPM usage stable across multi-call rows
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── CSV reading ───────────────────────────────────────────────────────────────
@@ -194,7 +195,7 @@ async function main() {
       const classResult = await runClassification({ rawText });
       console.log(`  → classify: ${classResult.classpath} (${classResult.confidence}%, ${classResult.schema_fields.length} fields)`);
 
-      // ── Stage 2: Extract using LLM-generated schema fields ───────────────
+            // ── Stage 2: Extract using LLM-generated schema fields ───────────────
       const extractResult = await runExtraction({
         rawText,
         category: "auto",
@@ -203,13 +204,38 @@ async function main() {
       const fieldCount = Object.keys(extractResult.extracted_fields ?? {}).length;
       console.log(`  → extract: ${fieldCount} fields`);
 
-      // ── Stage 3: Normalize ───────────────────────────────────────────────
+      // ── Stage 3: Enrich (manufacturer-site-only live search) ─────────────
+      const brandResolved = resolveBrandForEnrichment(extractResult.extracted_fields || {});
+      const mpnResolved   = resolveMpnForEnrichment(extractResult.extracted_fields || {});
+      const manufForEnrich = brandResolved?.name || manuf || "";
+      const mpnForEnrich   = mpnResolved?.mpn || mpn;
+
+      let enrichmentResult;
+      try {
+        if (!manufForEnrich || !mpnForEnrich) {
+            throw new Error(`Enrichment skipped: missing brand or mpn`);
+        }
+        enrichmentResult = await runEnrichment({
+          manufacturerName: manufForEnrich,
+          partNumber: mpnForEnrich,
+        });
+        console.log(`  → enrich: ${enrichmentResult.officialDataFound ? "✓" : "✗"} ${enrichmentResult.status}`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`  → enrich: error — ${msg}`);
+        enrichmentResult = { officialDataFound: false, status: `needs review - enrichment threw: ${msg}` };
+      }
+
+      // ── Stage 4: Normalize ───────────────────────────────────────────────
       const normResult = await runNormalization(extractResult.extracted_fields);
 
-      // ── Stage 4: Format (dynamic attributes from classification schema) ──
+      // ── Stage 5: Format (dynamic attributes + official source data) ──────
       const fmtResult = await runFormatting({
         normalizedFields: normResult.normalized_fields,
         classificationResult: classResult,    // ← provides schema_fields for attribute mapping
+        officialSourceData: enrichmentResult.officialDataFound
+          ? enrichmentResult.extractedAttributes
+          : undefined,
       });
 
       // Overlay the original input row fields for pass-through columns
@@ -233,6 +259,8 @@ async function main() {
           schema_fields: classResult.schema_fields.map((f) => f.label),
           attribute_count: fmtResult.delivery_formats.attributes?.length ?? 0,
           is_known_mpn: isKnownMPN,
+          enrichment_status: enrichmentResult.status,
+          enrichment_source_url: enrichmentResult.sourceUrl ?? null,
         },
       });
 
@@ -272,6 +300,7 @@ async function main() {
 
     // Rate limiting
     if (i < inputRows.length - 1) await sleep(DELAY_MS);
+    await new Promise(resolve => setTimeout(resolve, 2000));
   }
 
   // ── Write delivery CSV ────────────────────────────────────────────────────

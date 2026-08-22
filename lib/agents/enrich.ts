@@ -46,20 +46,31 @@ const MANUFACTURER_DOMAIN_MAP: Record<string, string> = {
 };
 
 function resolveCanonicalDomain(manufacturerName: string): string | null {
+  const normalizedInput = manufacturerName.toLowerCase().replace(/\s+/g, "");
+
   // 1. Exact match first (fastest, unambiguous)
   if (MANUFACTURER_DOMAIN_MAP[manufacturerName]) {
     return MANUFACTURER_DOMAIN_MAP[manufacturerName];
   }
+  
+  // 1b. Normalized exact match (handles casing and spacing e.g., "Kitchen Aid" -> "kitchenaid")
+  for (const [key, domain] of Object.entries(MANUFACTURER_DOMAIN_MAP)) {
+    if (normalizedInput === key.toLowerCase().replace(/\s+/g, "")) {
+      return domain;
+    }
+  }
+
   const lower = manufacturerName.toLowerCase();
   // 2. One-directional substring: manufacturer name contains the key.
-  // We do NOT check key.includes(lower) — that direction matches short keys
-  // (e.g. "ge", "lg") inside any manufacturer name containing those letters,
-  // causing wrong-domain results like "Rheem Manufacturing" → "frigidaire.com".
-  // Minimum key length of 4 chars prevents false positives from short keys.
+  // Minimum key length of 4 chars prevents false positives from short keys (e.g., "ge" inside "general").
+  // For short keys, we use a word-boundary regex to safely match them (e.g., "LG Electronics" -> matches "lg").
   for (const [key, domain] of Object.entries(MANUFACTURER_DOMAIN_MAP)) {
     const keyLower = key.toLowerCase();
-    if (keyLower.length >= 4 && lower.includes(keyLower)) {
-      return domain;
+    if (keyLower.length >= 4) {
+      if (lower.includes(keyLower)) return domain;
+    } else {
+      const regex = new RegExp(`\\b${keyLower}\\b`);
+      if (regex.test(lower)) return domain;
     }
   }
   return null;

@@ -83,6 +83,40 @@ downstream parser.
 }
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MANUFACTURER vs BRAND — SOURCE TRUST RULE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Product data often arrives from distributors or purchasing cooperatives.
+In these cases, the labelled "Manufacturer:" field in the input may contain
+the name of a DISTRIBUTOR or COOPERATIVE, NOT the actual product maker.
+The real product brand is almost always present as a recognisable token
+inside the product description or title text (e.g. "LG", "GE", "KitchenAid",
+"Frigidaire", "Whirlpool", "Bosch", "Samsung").
+
+You MUST apply this source-trust hierarchy for brand/manufacturer fields:
+
+  1. HIGHEST TRUST — a brand/make name token embedded directly in the
+     product title or description text (e.g. the word "LG" or "KitchenAid"
+     appearing as part of the product name like "LDPH5554D LG Dishwasher BSS").
+     Extract this as the "brand" field with high confidence.
+
+  2. LOWER TRUST — a labelled "Manufacturer:" prefix line or a separate
+     "Manufacturer" column value. This is often a distributor, cooperative,
+     or purchasing group name rather than the product maker. Extract it as
+     "manufacturer" only if it matches a recognisable product brand; otherwise
+     extract it separately and note in "notes" that it appears to be a
+     distributor rather than the product manufacturer.
+
+IMPORTANT: If the description contains a recognisable brand name AND the
+"Manufacturer:" label contains a different, clearly non-brand name (e.g.
+contains words like "Cooperative", "Supply", "Dealers", "Group", "LLC",
+"Inc", or parenthetical codes like "(APPDE)"), then:
+  - Set "brand" to the brand token found in the description (high confidence).
+  - Set "manufacturer" to the labelled value at LOW confidence (≤ 40) and
+    note in "notes" that this appears to be a distributor/cooperative name.
+  - NEVER use the distributor name as the brand for downstream enrichment.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 IMPORTANT RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

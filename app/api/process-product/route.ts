@@ -22,16 +22,17 @@
  * }
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import { runExtraction }             from "@/lib/agents/extract";
-import { runValidation }             from "@/lib/agents/validate";
-import { runGapResolution }          from "@/lib/agents/gap-resolve";
-import { runReconciliation }         from "@/lib/agents/reconcile";
-import { runEnrichment }             from "@/lib/agents/enrich";
-import { runClassification }         from "@/lib/agents/classify";
-import { runNormalization }          from "@/lib/agents/normalize";
-import { runFormatting }             from "@/lib/agents/format";
-import type { ExtractedField } from "@/lib/types";
+import { NextRequest, NextResponse }  from "next/server";
+import { runExtraction }              from "@/lib/agents/extract";
+import { runValidation }              from "@/lib/agents/validate";
+import { runGapResolution }           from "@/lib/agents/gap-resolve";
+import { runReconciliation }          from "@/lib/agents/reconcile";
+import { runEnrichment }              from "@/lib/agents/enrich";
+import { runClassification }          from "@/lib/agents/classify";
+import { runNormalization }           from "@/lib/agents/normalize";
+import { runFormatting }              from "@/lib/agents/format";
+import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "@/lib/pipeline-utils";
+import type { ExtractedField }        from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -317,24 +318,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 6. Enrichment (Stage 5) ──────────────────────────────────────────────
+  // ── 6. Enrichment (Stage 5) ──────────────────────────────────────────────────────
   let enrichmentResult = null;
-  // Extract manufacturer name and real MPN from extracted fields
-  const manufKey = Object.keys(finalExtractedFields).find(
-    (k) => k === "MANUFACTURER_NAME" || k === "Part_Manuf" || k.toLowerCase().includes("manuf")
-  );
-  const mpnKey = Object.keys(finalExtractedFields).find(
-    (k) =>
-      k === "MANUFACTURER_PART_NUMBER" ||
-      k === "Mfg_Part_Num" ||
-      k === "mfg_part_num" ||
-      k.toLowerCase().includes("part_num") ||
-      k.toLowerCase().includes("mpn")
-  );
-  const manufValue = manufKey ? finalExtractedFields[manufKey]?.value : undefined;
-  const mpnValue = mpnKey ? finalExtractedFields[mpnKey]?.value : undefined;
-  const manuf = manufValue == null ? undefined : String(manufValue);
-  const mpn = mpnValue == null ? undefined : String(mpnValue);
+  const brandResolved = resolveBrandForEnrichment(finalExtractedFields);
+  const mpnResolved   = resolveMpnForEnrichment(finalExtractedFields);
+  const manuf = brandResolved?.name;
+  const mpn   = mpnResolved?.mpn;
 
   if (manuf && mpn) {
     try {
@@ -344,7 +333,7 @@ export async function POST(req: NextRequest) {
     }
   } else {
     pipelineWarnings.push(
-      `Enrichment skipped: could not resolve manufacturer (${manufKey ?? "none"}) or MPN (${mpnKey ?? "none"}) from extracted fields.`
+      `Enrichment skipped: could not resolve brand (${brandResolved?.sourceKey ?? "none"}) or MPN (${mpnResolved?.sourceKey ?? "none"}) from extracted fields.`
     );
   }
 

@@ -116,7 +116,7 @@ export async function runExtraction(input: ExtractInput): Promise<ExtractionResu
   }
 
   // ── Call Groq ─────────────────────────────────────────────────────────────
-  const rawResponse = await callGroq(EXTRACTION_SYSTEM_PROMPT, userContent, undefined, undefined, 900);
+  const rawResponse = await callGroq(EXTRACTION_SYSTEM_PROMPT, userContent, undefined, undefined, 2048);
 
   // ── Parse ─────────────────────────────────────────────────────────────────
   let result: ExtractionResult;
