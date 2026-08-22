@@ -23,20 +23,9 @@
  */
 
 import { callGroq, parseJsonResponse } from "@/lib/groq";
+import { isObviouslyBlocked, verifyOfficialManufacturerDomain } from "@/lib/blocklists";
 
 const TAVILY_API_BASE = "https://api.tavily.com/search";
-
-// Shared retailer blocklist — same set as enrich.ts so both stages agree on
-// what counts as an "unreliable" source domain.
-const KNOWN_RETAILER_BLOCKLIST = [
-  "amazon.com", "homedepot.com", "lowes.com", "walmart.com", "ebay.com",
-  "wayfair.com", "target.com", "bestbuy.com", "grainger.com", "menards.com",
-  "acehardware.com", "build.com", "ferguson.com", "supplyhouse.com",
-  "alibaba.com", "aliexpress.com", "wikipedia.org", "youtube.com",
-  // Additional domains that commonly resell / aggregate without being the OEM
-  "instacart.com", "google.com", "bing.com", "reddit.com", "quora.com",
-  "yelp.com", "houzz.com", "pinterest.com",
-];
 
 // In-memory cache keyed by MPN. Same pattern as enrich.ts domainDiscoveryCache.
 const brandDiscoveryCache = new Map<string, BrandDiscoveryResult>();
@@ -63,12 +52,7 @@ export interface BrandDiscoveryResult {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function isBlockedDomain(hostname: string): boolean {
-  const clean = hostname.replace(/^www\./, "");
-  return KNOWN_RETAILER_BLOCKLIST.some(
-    (bad) => clean === bad || clean.endsWith(`.${bad}`)
-  );
-}
+
 
 /** Returns the eTLD+1 portion of a hostname: "support.lg.com" → "lg.com" */
 function rootDomain(hostname: string): string {
@@ -129,11 +113,11 @@ export async function discoverBrandFromMPN(
       return FAILED;
     }
 
-    // Step 2: Filter out blocklisted domains
+    // Step 2: Filter out blocklisted domains (fast-fail only)
     const cleanResults = allResults.filter((r) => {
       try {
         const hostname = new URL(r.url).hostname;
-        return !isBlockedDomain(hostname);
+        return !isObviouslyBlocked(hostname);
       } catch {
         return false;
       }
@@ -198,42 +182,32 @@ Respond with this exact JSON shape:
       return FAILED;
     }
 
-    // Step 4: Compute code-level confidence heuristic
+    // Step 4: Positive-verification of the discovered domain
     const resultIdx = (parsed.result_index ?? 1) - 1;
     const bestResult = cleanResults[resultIdx] ?? cleanResults[0];
     let bestHostname = "unknown";
     try { bestHostname = new URL(bestResult.url).hostname; } catch {}
-    const bestRoot = rootDomain(bestHostname);
 
-    // Count how many independent root domains mention the same manufacturer name
-    const normalizedMfr = (parsed.manufacturer_name ?? parsed.brand_name ?? "").toLowerCase().replace(/[^a-z]/g, "");
-    const agreingDomains = new Set<string>();
-    for (const r of cleanResults) {
-      try {
-        const h = new URL(r.url).hostname;
-        const root = rootDomain(h);
-        const titleAndSnippet = `${r.title ?? ""} ${r.content ?? ""}`.toLowerCase();
-        if (
-          titleAndSnippet.includes(normalizedMfr.slice(0, 6)) ||
-          root.includes(normalizedMfr.slice(0, 5))
-        ) {
-          agreingDomains.add(root);
-        }
-      } catch {}
-    }
+    const manufacturerName = parsed.manufacturer_name ?? parsed.brand_name ?? "";
+    const pageSnippet = `${bestResult.title ?? ""} ${bestResult.content ?? ""}`;
 
-    // Does the best result's domain look like the manufacturer's own site?
-    const domainMatchesBrand =
-      bestRoot.includes(normalizedMfr.slice(0, 5)) ||
-      normalizedMfr.includes(bestRoot.split(".")[0]);
+    const verification = await verifyOfficialManufacturerDomain(
+      bestHostname,
+      manufacturerName,
+      pageSnippet
+    );
 
-    let confidence: "high" | "medium" | "low";
-    if (agreingDomains.size >= 2) {
-      confidence = "high";
-    } else if (domainMatchesBrand || agreingDomains.size === 1) {
-      confidence = "medium";
-    } else {
-      confidence = "low";
+    const accepted = verification.isOfficial && verification.confidence !== "low";
+    
+    console.log(
+      `  [discover-brand] domain check: ${bestHostname} ${
+        accepted ? "ACCEPTED" : "REJECTED"
+      } (${verification.confidence}) — ${verification.reasoning}`
+    );
+
+    if (!accepted) {
+      brandDiscoveryCache.set(cacheKey, FAILED);
+      return FAILED;
     }
 
     const result: BrandDiscoveryResult = {
@@ -241,7 +215,7 @@ Respond with this exact JSON shape:
       manufacturerName: parsed.manufacturer_name ?? undefined,
       brandName: parsed.brand_name ?? undefined,
       sourceUrl: bestResult?.url ?? undefined,
-      confidence,
+      confidence: verification.confidence,
       method: "mpn_web_search",
     };
 

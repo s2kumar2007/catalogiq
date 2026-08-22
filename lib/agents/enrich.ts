@@ -15,6 +15,7 @@
  */
 
 import { callGroq, parseJsonResponse } from "@/lib/groq";
+import { isObviouslyBlocked, verifyOfficialManufacturerDomain } from "@/lib/blocklists";
 
 const TAVILY_API_BASE = "https://api.tavily.com/search";
 
@@ -31,32 +32,20 @@ export interface EnrichmentResult {
   extractedAttributes?: Record<string, string>;
 }
 
-// Retailers/marketplaces/distributors that must never be accepted as an
-// "official manufacturer domain," even if they rank highly in search.
-const KNOWN_RETAILER_BLOCKLIST = [
-  "amazon.com", "homedepot.com", "lowes.com", "walmart.com", "ebay.com",
-  "wayfair.com", "target.com", "bestbuy.com", "grainger.com", "menards.com",
-  "acehardware.com", "build.com", "ferguson.com", "supplyhouse.com",
-  "alibaba.com", "aliexpress.com", "wikipedia.org", "youtube.com",
-];
-
 // In-memory cache: manufacturer name → discovered domain (or null = tried,
 // nothing found). Avoids re-discovering the same brand's domain on every
 // row within a single pipeline run.
 const domainDiscoveryCache = new Map<string, string | null>();
 
-function isBlockedDomain(hostname: string): boolean {
-  const clean = hostname.replace(/^www\./, "");
-  return KNOWN_RETAILER_BLOCKLIST.some(
-    (bad) => clean === bad || clean.endsWith(`.${bad}`)
-  );
-}
 
 /**
- * Searches for "<manufacturer> official website" and returns the first
- * result whose domain isn't a known retailer/marketplace. This replaces
- * a static manufacturer→domain map so any brand in the dataset can be
- * resolved, not just a pre-curated handful.
+ * Discovers the manufacturer's official domain by:
+ *   1. Fast-fail blocking on obviously-wrong domains (Amazon, eBay, etc.)
+ *   2. Positive-verification via Groq for every candidate that passes step 1
+ *      — only accepts domains where Groq confirms it's the manufacturer's own
+ *        site at "high" or "medium" confidence
+ *
+ * This replaces the previous ever-growing blocklist approach.
  */
 async function discoverManufacturerDomain(
   manufacturerName: string
@@ -89,14 +78,33 @@ async function discoverManufacturerDomain(
     const results: any[] = json?.results ?? [];
 
     for (const r of results) {
+      let hostname: string;
       try {
-        const hostname = new URL(r.url).hostname.replace(/^www\./, "");
-        if (!isBlockedDomain(hostname)) {
-          domainDiscoveryCache.set(manufacturerName, hostname);
-          return hostname;
-        }
+        hostname = new URL(r.url).hostname.replace(/^www\./, "");
       } catch {
-        // skip malformed URLs from search results
+        continue; // malformed URL
+      }
+
+      // Step 1: fast-fail on obviously wrong domains (no Groq call wasted)
+      if (isObviouslyBlocked(hostname)) {
+        console.log(`  [enrich] domain check: ${hostname} REJECTED (fast-fail) — on obvious-reject list`);
+        continue;
+      }
+
+      // Step 2: positive-verification via Groq
+      const pageSnippet = `${r.title ?? ""} ${r.content ?? ""}`;
+      const verification = await verifyOfficialManufacturerDomain(hostname, manufacturerName, pageSnippet);
+      const accepted = verification.isOfficial && verification.confidence !== "low";
+
+      console.log(
+        `  [enrich] domain check: ${hostname} ${
+          accepted ? "ACCEPTED" : "REJECTED"
+        } (${verification.confidence}) — ${verification.reasoning}`
+      );
+
+      if (accepted) {
+        domainDiscoveryCache.set(manufacturerName, hostname);
+        return hostname;
       }
     }
 
