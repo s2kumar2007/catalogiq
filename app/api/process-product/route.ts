@@ -32,6 +32,8 @@ import { runClassification }          from "@/lib/agents/classify";
 import { runNormalization }           from "@/lib/agents/normalize";
 import { runFormatting }              from "@/lib/agents/format";
 import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "@/lib/pipeline-utils";
+import { discoverBrandFromMPN }               from "@/lib/agents/discover-brand";
+import type { BrandDiscoveryResult }          from "@/lib/agents/discover-brand";
 import type { ExtractedField }        from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -318,11 +320,28 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── 6. Enrichment (Stage 5) ──────────────────────────────────────────────────────
+  // ── 6. Brand Resolution + MPN-Based Discovery Fallback ────────────────
   let enrichmentResult = null;
   const brandResolved = resolveBrandForEnrichment(finalExtractedFields);
   const mpnResolved   = resolveMpnForEnrichment(finalExtractedFields);
-  const manuf = brandResolved?.name;
+
+  let finalBrand = brandResolved;
+  let brandDiscoveryResult: BrandDiscoveryResult | null = null;
+
+  if (!brandResolved) {
+    brandDiscoveryResult = await discoverBrandFromMPN({
+      mpn: mpnResolved?.mpn ?? (rawText ?? "").slice(0, 20),
+      productDescription: rawText ?? "",
+    });
+    if (brandDiscoveryResult.discovered && brandDiscoveryResult.confidence !== "low") {
+      finalBrand = {
+        name: brandDiscoveryResult.manufacturerName ?? brandDiscoveryResult.brandName ?? "",
+        sourceKey: "mpn_web_search",
+      };
+    }
+  }
+
+  const manuf = finalBrand?.name;
   const mpn   = mpnResolved?.mpn;
 
   if (manuf && mpn) {
@@ -333,7 +352,7 @@ export async function POST(req: NextRequest) {
     }
   } else {
     pipelineWarnings.push(
-      `Enrichment skipped: could not resolve brand (${brandResolved?.sourceKey ?? "none"}) or MPN (${mpnResolved?.sourceKey ?? "none"}) from extracted fields.`
+      `Enrichment skipped: could not resolve brand (${finalBrand?.sourceKey ?? "none"}) or MPN (${mpnResolved?.sourceKey ?? "none"}) from extracted fields.`
     );
   }
 
@@ -359,8 +378,8 @@ export async function POST(req: NextRequest) {
         normalizedFields: finalExtractedFields,
         classificationResult: classificationResult || undefined,
         officialSourceData: enrichmentResult?.officialDataFound ? enrichmentResult.extractedAttributes : undefined,
-        resolvedBrand: brandResolved,
-        resolvedManufacturer: brandResolved,
+        resolvedBrand: finalBrand,
+        resolvedManufacturer: finalBrand,
       });
     } catch (err) {
       pipelineWarnings.push(`Formatting failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -379,7 +398,8 @@ export async function POST(req: NextRequest) {
       enrichment_result:    enrichmentResult,
       classification_result: classificationResult,
       normalization_result: normalizationResult,
-      delivery_formats:     formattingResult?.delivery_formats,
+      formatting_result:    formattingResult,
+      brand_discovery:      brandDiscoveryResult ?? null,
       is_unverified:        isUnverified,
       pipeline_warnings:    pipelineWarnings,
     },

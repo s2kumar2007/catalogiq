@@ -40,6 +40,8 @@ import { runExtraction }     from "../lib/agents/extract";
 import { runNormalization }  from "../lib/agents/normalize";
 import { runFormatting }     from "../lib/agents/format";
 import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "../lib/pipeline-utils";
+import { discoverBrandFromMPN } from "../lib/agents/discover-brand";
+import type { BrandDiscoveryResult } from "../lib/agents/discover-brand";
 
 // ── unilog-format.js utility imports (CommonJS, required via moduleResolution) ─
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -204,12 +206,36 @@ async function main() {
       const fieldCount = Object.keys(extractResult.extracted_fields ?? {}).length;
       console.log(`  → extract: ${fieldCount} fields`);
 
-      // ── Stage 3: Enrich (manufacturer-site-only live search) ─────────────
+      // ── Stage 3: Brand Resolution + MPN-Based Discovery Fallback ──────────
       const brandResolved = resolveBrandForEnrichment(extractResult.extracted_fields || {});
       const mpnResolved   = resolveMpnForEnrichment(extractResult.extracted_fields || {});
-      const manufForEnrich = brandResolved?.name || manuf || "";
+
+      let finalBrand = brandResolved;
+      let brandDiscoveryResult: BrandDiscoveryResult | null = null;
+
+      if (!brandResolved) {
+        brandDiscoveryResult = await discoverBrandFromMPN({
+          mpn: mpnResolved?.mpn ?? mpn,
+          productDescription: rawText,
+        });
+        console.log(`  → brand discovery: ${
+          brandDiscoveryResult.discovered
+            ? (brandDiscoveryResult.manufacturerName ?? brandDiscoveryResult.brandName)
+            : "not found"
+        } (confidence: ${brandDiscoveryResult.confidence})`);
+
+        if (brandDiscoveryResult.discovered && brandDiscoveryResult.confidence !== "low") {
+          finalBrand = {
+            name: brandDiscoveryResult.manufacturerName ?? brandDiscoveryResult.brandName ?? "",
+            sourceKey: "mpn_web_search",
+          };
+        }
+      }
+
+      const manufForEnrich = finalBrand?.name || manuf || "";
       const mpnForEnrich   = mpnResolved?.mpn || mpn;
 
+      // ── Stage 4: Enrich (manufacturer-site-only live search) ─────────────
       let enrichmentResult;
       try {
         if (!manufForEnrich || !mpnForEnrich) {
@@ -232,12 +258,12 @@ async function main() {
       // ── Stage 5: Format (dynamic attributes + official source data) ──────
       const fmtResult = await runFormatting({
         normalizedFields: normResult.normalized_fields,
-        classificationResult: classResult,    // ← provides schema_fields for attribute mapping
+        classificationResult: classResult,
         officialSourceData: enrichmentResult.officialDataFound
           ? enrichmentResult.extractedAttributes
           : undefined,
-        resolvedBrand: brandResolved,
-        resolvedManufacturer: brandResolved,
+        resolvedBrand: finalBrand,
+        resolvedManufacturer: finalBrand,
       });
 
       // Overlay the original input row fields for pass-through columns
@@ -263,6 +289,14 @@ async function main() {
           is_known_mpn: isKnownMPN,
           enrichment_status: enrichmentResult.status,
           enrichment_source_url: enrichmentResult.sourceUrl ?? null,
+          brand_resolution_source: finalBrand?.sourceKey ?? null,
+          brand_discovery: brandDiscoveryResult ? {
+            discovered: brandDiscoveryResult.discovered,
+            manufacturer: brandDiscoveryResult.manufacturerName ?? null,
+            brand: brandDiscoveryResult.brandName ?? null,
+            confidence: brandDiscoveryResult.confidence,
+            source_url: brandDiscoveryResult.sourceUrl ?? null,
+          } : null,
         },
       });
 
