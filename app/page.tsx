@@ -414,13 +414,17 @@ export default function Home() {
                   type="button"
                   id="download-csv-btn"
                   onClick={downloadCSV}
+                  disabled={loading}
                   className="text-xs px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
                   style={{
                     background: "var(--bg-elevated)",
                     border: "1px solid var(--border-subtle)",
                     color: "var(--text-secondary)",
+                    opacity: loading ? 0.4 : 1,
+                    cursor: loading ? "not-allowed" : "pointer",
                   }}
                   onMouseEnter={(e) => {
+                    if (loading) return;
                     e.currentTarget.style.borderColor = "var(--accent-cyan)";
                     e.currentTarget.style.color = "var(--text-primary)";
                   }}
@@ -440,13 +444,17 @@ export default function Home() {
                   type="button"
                   id="download-excel-btn"
                   onClick={downloadExcel}
+                  disabled={loading}
                   className="text-xs px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
                   style={{
                     background: "var(--bg-elevated)",
                     border: "1px solid var(--border-subtle)",
                     color: "var(--text-secondary)",
+                    opacity: loading ? 0.4 : 1,
+                    cursor: loading ? "not-allowed" : "pointer",
                   }}
                   onMouseEnter={(e) => {
+                    if (loading) return;
                     e.currentTarget.style.borderColor = "#22c55e";
                     e.currentTarget.style.color = "var(--text-primary)";
                   }}
