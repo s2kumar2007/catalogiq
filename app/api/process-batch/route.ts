@@ -184,6 +184,8 @@ async function processSingleProduct(
         normalizedFields:     finalExtractedFields,
         classificationResult: classificationResult ?? undefined,
         officialSourceData:   enrichmentResult?.extractedAttributes ?? undefined,
+        resolvedBrand:        brandResolved,
+        resolvedManufacturer: brandResolved,
       });
     } catch (err) {
       pipelineWarnings.push(

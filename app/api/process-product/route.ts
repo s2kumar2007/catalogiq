@@ -355,7 +355,13 @@ export async function POST(req: NextRequest) {
   let formattingResult = null;
   if (!isUnverified && normalizationResult) {
     try {
-      formattingResult = await runFormatting(finalExtractedFields);
+      formattingResult = await runFormatting({
+        normalizedFields: finalExtractedFields,
+        classificationResult: classificationResult || undefined,
+        officialSourceData: enrichmentResult?.officialDataFound ? enrichmentResult.extractedAttributes : undefined,
+        resolvedBrand: brandResolved,
+        resolvedManufacturer: brandResolved,
+      });
     } catch (err) {
       pipelineWarnings.push(`Formatting failed: ${err instanceof Error ? err.message : String(err)}`);
     }

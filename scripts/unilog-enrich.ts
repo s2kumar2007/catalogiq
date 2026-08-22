@@ -236,6 +236,8 @@ async function main() {
         officialSourceData: enrichmentResult.officialDataFound
           ? enrichmentResult.extractedAttributes
           : undefined,
+        resolvedBrand: brandResolved,
+        resolvedManufacturer: brandResolved,
       });
 
       // Overlay the original input row fields for pass-through columns
@@ -270,8 +272,8 @@ async function main() {
         predictedAttrs[k] = String(v.value);
       }
       for (let i = 1; i <= 50; i++) {
-        const label = deliveryRecord[`ATTRIBUTE_LABEL ${i}`];
-        const value = deliveryRecord[`ATTRIBUTE_VALUE ${i}`];
+        const label = (deliveryRecord as any)[`ATTRIBUTE_LABEL ${i}`];
+        const value = (deliveryRecord as any)[`ATTRIBUTE_VALUE ${i}`];
         if (label) predictedAttrs[label] = value ?? "";
       }
       

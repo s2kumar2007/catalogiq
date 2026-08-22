@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-22T18:19:13.003Z",
+  "generated_at": "2026-08-22T18:58:35.092Z",
   "pipeline": "llm_full: classify → extract → normalize → format",
   "pipeline_note": "unilog-format.js used for delivery column assembly only; attributes from LLM",
   "input_rows": 10,
@@ -58,104 +58,6 @@
   "trace_sample": [
     {
       "mpn": "KDFM404KPS",
-      "manufacturer": "Appliance Dealers Cooperative",
-      "brand": "Appliance Dealers Cooperative",
-      "classpath": "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers",
-      "extracted": {
-        "type": "Product",
-        "size": "",
-        "grit": "",
-        "pack": "",
-        "application": ""
-      },
-      "category_source": "input_text_fallback",
-      "fixed_block_status": "not_retrieved_blank_by_design",
-      "fixed_block_columns_requiring_official_retrieval": [
-        "MFR URL",
-        "Ref URL 1",
-        "Ref URL 2",
-        "Ref URL 3",
-        "Ref URL 4",
-        "Ref URL 5",
-        "UPC",
-        "EAN",
-        "GTIN",
-        "UNSPSC",
-        "Warranty",
-        "List Price",
-        "Selling Qty",
-        "Selling UOM",
-        "Standard Packaging Information",
-        "LENGTH",
-        "LENGTH_UOM",
-        "HEIGHT",
-        "HEIGHT_UOM",
-        "WIDTH",
-        "WIDTH_UOM",
-        "WEIGHT",
-        "WEIGHT_UOM",
-        "VOLUME",
-        "VOLUME_UOM",
-        "Product Image",
-        "Alternate Image 1",
-        "Alternate Image 2",
-        "Alternate Image 3",
-        "Alternate Image 4",
-        "SDS",
-        "SDS_1",
-        "Warranty Information",
-        "Catalog",
-        "Specification Sheet",
-        "Instruction/Installation Manual",
-        "Service Manual",
-        "Owners/User Manual",
-        "Line Drawing",
-        "MTR",
-        "RoHS",
-        "Full Engineering Drawing",
-        "Energy Star Guide",
-        "Technical Bulletin",
-        "Submittal",
-        "Compatibility Chart",
-        "Size Chart",
-        "Product Label/Insert",
-        "Video Link",
-        "Video Link 1",
-        "Country Of Origin"
-      ],
-      "confidence": {
-        "brand": 0.85,
-        "classpath": 0.35,
-        "attributes": 0.4
-      },
-      "needs_human_review": true,
-      "schema_source": "llm_classify",
-      "schema_field_count": 15,
-      "attribute_count": 4,
-      "classify_confidence": 95,
-      "schema_fields": [
-        "Series",
-        "Model",
-        "Number of Wash Cycles",
-        "Voltage Rating",
-        "Amperage Rating",
-        "Mounting Type",
-        "Plug Type",
-        "Size",
-        "Depth With Door Open",
-        "Minimum Height",
-        "Maximum Height",
-        "Sound Level",
-        "Material",
-        "Color",
-        "Additional Information"
-      ],
-      "is_known_mpn": false,
-      "enrichment_status": "needs review - no identifiable manufacturer/brand (value: \"-- Unbranded --\")",
-      "enrichment_source_url": null
-    },
-    {
-      "mpn": "PDSH4816AF",
       "manufacturer": "Appliance Dealers Cooperative",
       "brand": "Unbranded",
       "classpath": "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers",
@@ -248,12 +150,12 @@
         "Color",
         "Additional Information"
       ],
-      "is_known_mpn": true,
+      "is_known_mpn": false,
       "enrichment_status": "needs review - no identifiable manufacturer/brand (value: \"Unbranded\")",
       "enrichment_source_url": null
     },
     {
-      "mpn": "PDT715SYVFS",
+      "mpn": "PDSH4816AF",
       "manufacturer": "Appliance Dealers Cooperative",
       "brand": "Appliance Dealers Cooperative",
       "classpath": "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers",
@@ -266,6 +168,104 @@
       },
       "category_source": "input_text_fallback",
       "fixed_block_status": "not_retrieved_blank_by_design",
+      "fixed_block_columns_requiring_official_retrieval": [
+        "MFR URL",
+        "Ref URL 1",
+        "Ref URL 2",
+        "Ref URL 3",
+        "Ref URL 4",
+        "Ref URL 5",
+        "UPC",
+        "EAN",
+        "GTIN",
+        "UNSPSC",
+        "Warranty",
+        "List Price",
+        "Selling Qty",
+        "Selling UOM",
+        "Standard Packaging Information",
+        "LENGTH",
+        "LENGTH_UOM",
+        "HEIGHT",
+        "HEIGHT_UOM",
+        "WIDTH",
+        "WIDTH_UOM",
+        "WEIGHT",
+        "WEIGHT_UOM",
+        "VOLUME",
+        "VOLUME_UOM",
+        "Product Image",
+        "Alternate Image 1",
+        "Alternate Image 2",
+        "Alternate Image 3",
+        "Alternate Image 4",
+        "SDS",
+        "SDS_1",
+        "Warranty Information",
+        "Catalog",
+        "Specification Sheet",
+        "Instruction/Installation Manual",
+        "Service Manual",
+        "Owners/User Manual",
+        "Line Drawing",
+        "MTR",
+        "RoHS",
+        "Full Engineering Drawing",
+        "Energy Star Guide",
+        "Technical Bulletin",
+        "Submittal",
+        "Compatibility Chart",
+        "Size Chart",
+        "Product Label/Insert",
+        "Video Link",
+        "Video Link 1",
+        "Country Of Origin"
+      ],
+      "confidence": {
+        "brand": 0.85,
+        "classpath": 0.35,
+        "attributes": 0.2
+      },
+      "needs_human_review": true,
+      "schema_source": "llm_classify",
+      "schema_field_count": 15,
+      "attribute_count": 2,
+      "classify_confidence": 95,
+      "schema_fields": [
+        "Series",
+        "Model",
+        "Number of Wash Cycles",
+        "Voltage Rating",
+        "Amperage Rating",
+        "Mounting Type",
+        "Plug Type",
+        "Size",
+        "Depth With Door Open",
+        "Minimum Height",
+        "Maximum Height",
+        "Sound Level",
+        "Material",
+        "Color",
+        "Additional Information"
+      ],
+      "is_known_mpn": true,
+      "enrichment_status": "needs review - no identifiable manufacturer/brand (value: \"-- Unbranded --\")",
+      "enrichment_source_url": null
+    },
+    {
+      "mpn": "PDT715SYVFS",
+      "manufacturer": "Appliance Dealers Cooperative",
+      "brand": "GE",
+      "classpath": "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers",
+      "extracted": {
+        "type": "Product",
+        "size": "",
+        "grit": "",
+        "pack": "",
+        "application": ""
+      },
+      "category_source": "input_text_fallback",
+      "fixed_block_status": "official_source_values_applied",
       "fixed_block_columns_requiring_official_retrieval": [
         "MFR URL",
         "Ref URL 1",
@@ -347,8 +347,8 @@
         "Additional Information"
       ],
       "is_known_mpn": false,
-      "enrichment_status": "needs review - no identifiable manufacturer/brand (value: \"-- Unbranded --\")",
-      "enrichment_source_url": null
+      "enrichment_status": "success - official domain discovered and verified (ge.com)",
+      "enrichment_source_url": "https://www.ge.com/digital/documentation/workflow/t_wf_modify_the_settings_for_a_specification.html"
     },
     {
       "mpn": "LDPH5554D",
@@ -451,7 +451,7 @@
     {
       "mpn": "WDTS7024RZ",
       "manufacturer": "Appliance Dealers Cooperative",
-      "brand": "Appliance Dealers Cooperative",
+      "brand": "Unbranded",
       "classpath": "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers",
       "extracted": {
         "type": "Product",
@@ -518,12 +518,12 @@
       "confidence": {
         "brand": 0.85,
         "classpath": 0.35,
-        "attributes": 0.2
+        "attributes": 0.5
       },
       "needs_human_review": true,
       "schema_source": "llm_classify",
       "schema_field_count": 15,
-      "attribute_count": 2,
+      "attribute_count": 5,
       "classify_confidence": 95,
       "schema_fields": [
         "Series",
@@ -543,7 +543,7 @@
         "Additional Information"
       ],
       "is_known_mpn": true,
-      "enrichment_status": "needs review - no identifiable manufacturer/brand (value: \"-- Unbranded --\")",
+      "enrichment_status": "needs review - no identifiable manufacturer/brand (value: \"Unbranded\")",
       "enrichment_source_url": null
     },
     {
@@ -616,12 +616,12 @@
       "confidence": {
         "brand": 0.85,
         "classpath": 0.35,
-        "attributes": 0.5
+        "attributes": 0.3
       },
       "needs_human_review": true,
       "schema_source": "llm_classify",
       "schema_field_count": 15,
-      "attribute_count": 5,
+      "attribute_count": 3,
       "classify_confidence": 95,
       "schema_fields": [
         "Series",
@@ -714,12 +714,12 @@
       "confidence": {
         "brand": 0.85,
         "classpath": 0.35,
-        "attributes": 0.4
+        "attributes": 0.3
       },
       "needs_human_review": true,
       "schema_source": "llm_classify",
       "schema_field_count": 15,
-      "attribute_count": 4,
+      "attribute_count": 3,
       "classify_confidence": 95,
       "schema_fields": [
         "Series",
@@ -739,13 +739,13 @@
         "Additional Information"
       ],
       "is_known_mpn": false,
-      "enrichment_status": "success - official domain discovered and verified (kitchenaid.com)",
-      "enrichment_source_url": "https://www.kitchenaid.com/major-appliances/dishwashers/integrated-control/p.kitchenaid-360%C2%B0-max-jets-third-rack-dishwasher-with-prodry-system-44-dba.kdts424sbe.html?frt=37"
+      "enrichment_status": "success - official domain discovered and verified (support.kitchenaidtools.com)",
+      "enrichment_source_url": "https://support.kitchenaidtools.com/hc/en-ie/articles/4407117850258-Ceramic-bakeware"
     },
     {
       "mpn": "KDTS324SPS",
       "manufacturer": "Appliance Dealers Cooperative",
-      "brand": "KitchenAid®",
+      "brand": "Kitchen Aid",
       "classpath": "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers",
       "extracted": {
         "type": "Product",
@@ -812,12 +812,12 @@
       "confidence": {
         "brand": 0.85,
         "classpath": 0.35,
-        "attributes": 0.4
+        "attributes": 0.6
       },
       "needs_human_review": true,
       "schema_source": "llm_classify",
       "schema_field_count": 15,
-      "attribute_count": 4,
+      "attribute_count": 6,
       "classify_confidence": 95,
       "schema_fields": [
         "Series",

@@ -36,6 +36,10 @@ export interface FormattingInput {
   classificationResult?: ClassificationResult;
   /** Official manufacturer source data (from enrich.ts) */
   officialSourceData?: Partial<UnilogDeliveryRecord>;
+  /** The real brand filtered from distributors (from pipeline-utils.ts) */
+  resolvedBrand?: { name: string; sourceKey: string } | null;
+  /** The real manufacturer filtered from distributors (from pipeline-utils.ts) */
+  resolvedManufacturer?: { name: string; sourceKey: string } | null;
 }
 
 export interface FormattingResult {
@@ -128,6 +132,8 @@ export async function runFormatting(
   let normalizedFields: Record<string, ExtractedField>;
   let classificationResult: ClassificationResult | undefined;
   let officialSourceData: Partial<UnilogDeliveryRecord> | undefined;
+  let resolvedBrand: { name: string; sourceKey: string } | null | undefined;
+  let resolvedManufacturer: { name: string; sourceKey: string } | null | undefined;
 
   if (
     inputOrFields &&
@@ -138,6 +144,8 @@ export async function runFormatting(
     normalizedFields = typed.normalizedFields;
     classificationResult = typed.classificationResult;
     officialSourceData = typed.officialSourceData;
+    resolvedBrand = typed.resolvedBrand;
+    resolvedManufacturer = typed.resolvedManufacturer;
   } else {
     // Legacy positional call: runFormatting(fields, officialSourceData?)
     normalizedFields = inputOrFields as Record<string, ExtractedField>;
@@ -174,6 +182,31 @@ export async function runFormatting(
     if (label && value) {
       attributes.push(`${label} = ${value}${uom ? ` ${uom}` : ""}`);
     }
+  }
+
+  // Override regex-fallback classpath/brand/manufacturer with the correct 
+  // LLM-derived and distributor-filtered values, when available. 
+  // buildUnilogDeliveryRecord() computes its own versions of these using 
+  // primitive placeholder-checking that doesn't have access to the real 
+  // classification or brand-resolution results - those need to win here.
+  
+  if (classificationResult?.classpath && classificationResult.classpath !== "Unknown>Uncategorized") {
+    formatted.record.Classpath = classificationResult.classpath;
+    
+    // Also split into Dept/Class/Fine if the schema expects those as 
+    // separate columns - classpath format is "Dept>Class>Fine"
+    const parts = classificationResult.classpath.split(">").map(p => p.trim());
+    if (parts.length >= 1) formatted.record.Dept = parts[0];
+    if (parts.length >= 2) formatted.record.Class = parts[1];
+    if (parts.length >= 3) formatted.record.Fine = parts[2];
+  }
+  
+  if (resolvedBrand?.name) {
+    formatted.record.BRAND_NAME = resolvedBrand.name;
+  }
+  
+  if (resolvedManufacturer?.name) {
+    formatted.record.MANUFACTURER_NAME = resolvedManufacturer.name;
   }
 
   return {
