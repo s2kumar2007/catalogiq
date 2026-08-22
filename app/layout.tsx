@@ -1,40 +1,35 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
-import "./globals.css";
+import { Space_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
+import Header from "@/components/Header";
 
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
+const spaceGrotesk = Space_Grotesk({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-space-grotesk",
 });
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-inter",
+});
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-jetbrains-mono",
 });
 
 export const metadata: Metadata = {
-  title: "CatalogIQ — AI Product Data Enrichment",
-  description: "Paste product descriptions or upload a CSV. CatalogIQ's AI pipeline extracts, validates and enriches structured catalog data automatically.",
-  icons: { icon: "/favicon.ico" },
+  title: "CatalogIQ",
+  description: "Turn messy catalog data into enriched, standardized product records — automatically.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html lang="en" className={`${spaceGrotesk.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
+      <body style={{ background: "#0A0C10", margin: 0 }}>
+        <Header />
         {children}
       </body>
     </html>
