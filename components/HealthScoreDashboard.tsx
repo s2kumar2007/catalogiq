@@ -47,6 +47,12 @@ export interface PipelineResult {
   input?: string;
   status: "success" | "error";
   error?: string;
+  // Full pipeline stage outputs (present when all stages ran successfully)
+  delivery_record?: Record<string, string> | null;
+  delivery_formats?: Record<string, unknown> | null;
+  enrichment_result?: Record<string, unknown> | null;
+  classification_result?: Record<string, unknown> | null;
+  normalization_result?: Record<string, unknown> | null;
 }
 
 interface BatchSummary {

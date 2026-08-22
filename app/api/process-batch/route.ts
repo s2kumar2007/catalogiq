@@ -1,23 +1,55 @@
 /**
  * app/api/process-batch/route.ts
  * Batch Processing Orchestrator — CatalogIQ
+ *
+ * Full pipeline per item (mirrors process-product/route.ts):
+ *   1. Classify   → Groq   (lib/agents/classify.ts)
+ *   2. Extract    → Groq   (lib/agents/extract.ts)
+ *   3. Validate   → Groq   (lib/agents/validate.ts)   [skipped if no known schema]
+ *   4. Gap-Resolve → Groq  (lib/agents/gap-resolve.ts) [skipped if not static category]
+ *   5. Enrich     → Gemini (lib/agents/enrich.ts)
+ *   6. Normalize  → Groq   (lib/agents/normalize.ts)
+ *   7. Format     → local  (lib/agents/format.ts)
+ *
+ * Concurrency is set to 1 to avoid Groq TPM limits on the free tier.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { runExtraction } from "@/lib/agents/extract";
-import { runValidation } from "@/lib/agents/validate";
-import { runGapResolution } from "@/lib/agents/gap-resolve";
-import type { SchemaCategory, ExtractedField } from "@/lib/types";
+import { runClassification }         from "@/lib/agents/classify";
+import { runExtraction }             from "@/lib/agents/extract";
+import { runValidation }             from "@/lib/agents/validate";
+import { runGapResolution }          from "@/lib/agents/gap-resolve";
+import { runEnrichment }             from "@/lib/agents/enrich";
+import { runNormalization }          from "@/lib/agents/normalize";
+import { runFormatting }             from "@/lib/agents/format";
+import type { ExtractedField }       from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-type KnownCategory = "fasteners" | "electrical_connectors";
-const KNOWN_CATEGORIES: KnownCategory[] = ["fasteners", "electrical_connectors"];
+type StaticCategory = "fasteners" | "electrical_connectors";
+type KnownCategory  = StaticCategory | "Built-In Dishwashers";
+
+const STATIC_CATEGORIES: StaticCategory[] = ["fasteners", "electrical_connectors"];
+const KNOWN_CATEGORIES:  KnownCategory[]  = ["fasteners", "electrical_connectors", "Built-In Dishwashers"];
+
+function classpathToCategory(classpath: string): KnownCategory | null {
+  const cp = classpath.toLowerCase();
+  if (cp.includes("dishwasher")) return "Built-In Dishwashers";
+  if (cp.includes("fastener") || cp.includes("bolt") || cp.includes("screw") || cp.includes("nut"))
+    return "fasteners";
+  if (cp.includes("connector") || cp.includes("terminal") || cp.includes("wiring"))
+    return "electrical_connectors";
+  return null;
+}
 
 function isKnownCategory(s: string): s is KnownCategory {
   return KNOWN_CATEGORIES.includes(s as KnownCategory);
+}
+
+function isStaticCategory(s: string): s is StaticCategory {
+  return STATIC_CATEGORIES.includes(s as StaticCategory);
 }
 
 interface BatchProductInput {
@@ -25,50 +57,82 @@ interface BatchProductInput {
 }
 
 // ---------------------------------------------------------------------------
-// Helper to execute single product pipeline
+// Full pipeline for a single product (mirrors process-product/route.ts)
 // ---------------------------------------------------------------------------
-async function processSingleProduct(rawText: string, categoryHint: "fasteners" | "electrical_connectors" | "auto") {
+async function processSingleProduct(
+  rawText: string,
+  categoryHint: "fasteners" | "electrical_connectors" | "auto"
+) {
   const pipelineWarnings: string[] = [];
 
-  // 1. Extraction
-  const extractionResult = await runExtraction({
-    rawText,
-    category: categoryHint,
-  });
+  let finalExtractedFields: Record<string, ExtractedField> = {};
+  let resolvedCategory: KnownCategory | "none" = "none";
+  let classificationResult = null;
 
-  // 2. Resolve Category
-  let resolvedCategory: SchemaCategory = "none";
-  if (categoryHint !== "auto" && isKnownCategory(categoryHint)) {
-    resolvedCategory = categoryHint;
-  } else {
-    resolvedCategory = extractionResult.schema_match as SchemaCategory;
+  // ── 1. Classification ─────────────────────────────────────────────────────
+  try {
+    classificationResult = await runClassification({ rawText });
+    const mapped = classpathToCategory(classificationResult.classpath);
+    resolvedCategory = mapped ?? "none";
+  } catch (err) {
+    pipelineWarnings.push(
+      `Classification failed: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
-  // 3. Validation
-  const isUnverified = !isKnownCategory(resolvedCategory);
-  let validationResult = null;
+  // ── 2. Extraction ─────────────────────────────────────────────────────────
+  let extractionResult;
+  try {
+    extractionResult = await runExtraction({
+      rawText,
+      category: isStaticCategory(resolvedCategory) ? resolvedCategory : categoryHint,
+    });
+  } catch (err) {
+    throw new Error(
+      `Extraction failed: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 
-  if (!isUnverified) {
+  finalExtractedFields = extractionResult.extracted_fields;
+  const extractionNotes = extractionResult.notes ?? "";
+
+  // If classification didn't resolve a category, fall back to extraction's guess
+  if (resolvedCategory === "none") {
+    resolvedCategory = isKnownCategory(extractionResult.schema_match)
+      ? extractionResult.schema_match
+      : "none";
+  }
+
+  const isUnverified = !isKnownCategory(resolvedCategory);
+
+  // ── 3. Validation (skipped if no known schema) ────────────────────────────
+  let validationResult = null;
+  if (isKnownCategory(resolvedCategory)) {
     try {
       validationResult = await runValidation(
-        extractionResult.extracted_fields,
-        resolvedCategory as KnownCategory
+        finalExtractedFields,
+        resolvedCategory,
+        classificationResult?.schema_fields ?? undefined
       );
     } catch (err) {
       pipelineWarnings.push(
         `Validation failed and was skipped: ${err instanceof Error ? err.message : String(err)}`
       );
     }
+  } else {
+    pipelineWarnings.push(
+      `schema_match is "${resolvedCategory}" — no schema available, validation skipped.`
+    );
   }
 
-  // 4. Gap Resolution
+  // ── 4. Gap Resolution (only for static categories) ───────────────────────
   let gapResolutionResult = null;
-  if (!isUnverified) {
+  if (isStaticCategory(resolvedCategory)) {
     try {
       gapResolutionResult = await runGapResolution(
-        extractionResult.extracted_fields,
+        finalExtractedFields,
         validationResult,
-        resolvedCategory as KnownCategory
+        resolvedCategory
       );
     } catch (err) {
       pipelineWarnings.push(
@@ -77,23 +141,79 @@ async function processSingleProduct(rawText: string, categoryHint: "fasteners" |
     }
   }
 
-  return {
-    schema_match: resolvedCategory,
-    extracted_fields: extractionResult.extracted_fields,
-    extraction_notes: extractionResult.notes ?? "",
-    validation_result: validationResult,
-    gap_resolution: gapResolutionResult,
-    is_unverified: isUnverified,
-    pipeline_warnings: pipelineWarnings,
-  };
-}
+  // ── 5. Enrichment ─────────────────────────────────────────────────────────
+  let enrichmentResult = null;
+  const manufKey = Object.keys(finalExtractedFields).find(
+    (k) => k === "MANUFACTURER_NAME" || k === "Part_Manuf" || k.toLowerCase().includes("manuf")
+  );
+  const mpnKey = Object.keys(finalExtractedFields).find(
+    (k) =>
+      k === "MANUFACTURER_PART_NUMBER" ||
+      k === "Mfg_Part_Num" ||
+      k === "mfg_part_num" ||
+      k.toLowerCase().includes("part_num") ||
+      k.toLowerCase().includes("mpn")
+  );
+  const manuf = manufKey ? String(finalExtractedFields[manufKey]?.value ?? "") : undefined;
+  const mpn   = mpnKey   ? String(finalExtractedFields[mpnKey]?.value ?? "")   : undefined;
 
-// ---------------------------------------------------------------------------
-// Helper to parse required/optional schema flags for gap scoring
-// ---------------------------------------------------------------------------
-function getRequiredFields(category: SchemaCategory): Set<string> {
-  void category;
-  return new Set<string>();
+  if (manuf && mpn) {
+    try {
+      enrichmentResult = await runEnrichment({ manufacturerName: manuf, partNumber: mpn });
+    } catch (err) {
+      pipelineWarnings.push(
+        `Enrichment failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  } else {
+    pipelineWarnings.push(
+      `Enrichment skipped: could not resolve manufacturer (${manufKey ?? "none"}) or MPN (${mpnKey ?? "none"}) from extracted fields.`
+    );
+  }
+
+  // ── 6. Normalization ──────────────────────────────────────────────────────
+  let normalizationResult = null;
+  if (!isUnverified) {
+    try {
+      normalizationResult = await runNormalization(finalExtractedFields);
+      finalExtractedFields = normalizationResult.normalized_fields;
+    } catch (err) {
+      pipelineWarnings.push(
+        `Normalization failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  // ── 7. Formatting ─────────────────────────────────────────────────────────
+  let formattingResult = null;
+  if (!isUnverified && normalizationResult) {
+    try {
+      formattingResult = await runFormatting({
+        normalizedFields:     finalExtractedFields,
+        classificationResult: classificationResult ?? undefined,
+        officialSourceData:   enrichmentResult?.extractedAttributes ?? undefined,
+      });
+    } catch (err) {
+      pipelineWarnings.push(
+        `Formatting failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  return {
+    schema_match:          resolvedCategory,
+    extracted_fields:      finalExtractedFields,
+    extraction_notes:      extractionNotes,
+    validation_result:     validationResult,
+    gap_resolution:        gapResolutionResult,
+    enrichment_result:     enrichmentResult,
+    classification_result: classificationResult,
+    normalization_result:  normalizationResult,
+    delivery_formats:      formattingResult?.delivery_formats ?? null,
+    delivery_record:       formattingResult?.delivery_record   ?? null,
+    is_unverified:         isUnverified,
+    pipeline_warnings:     pipelineWarnings,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +234,10 @@ export async function POST(req: NextRequest) {
 
   const { products, batch_id = `batch-${Date.now()}`, categoryHint = "auto" } = body;
 
-  console.log("Backend received products in process-batch route:", JSON.stringify(products, null, 2));
+  console.log(
+    "Backend received products in process-batch route:",
+    JSON.stringify(products, null, 2)
+  );
 
   if (!products || !Array.isArray(products) || products.length === 0) {
     return NextResponse.json(
@@ -124,74 +247,72 @@ export async function POST(req: NextRequest) {
   }
 
   const results: any[] = [];
-  const limit = 3;
-  const queue = [...products];
 
-  // Process the queue with max concurrency of 3
-  const workers = Array(Math.min(limit, queue.length))
-    .fill(null)
-    .map(async () => {
-      while (queue.length > 0) {
-        const item = queue.shift();
-        if (!item) continue;
-        const index = products.indexOf(item);
+  // Process sequentially (concurrency=1) to avoid Groq TPM limits
+  for (let index = 0; index < products.length; index++) {
+    const item = products[index];
+    try {
+      const pipelineOut = await processSingleProduct(item.raw_text, categoryHint);
 
-        try {
-          const pipelineOut = await processSingleProduct(item.raw_text, categoryHint);
-
-          // Calculate Product Health Score
-          let healthScore = 100;
-          const flags = pipelineOut.validation_result?.flags ?? [];
-          for (const flag of flags) {
-            if (flag.severity === "error") {
-              healthScore -= 15;
-            } else if (flag.severity === "warning" || flag.severity === "missing") {
-              healthScore -= 5;
-            }
-          }
-
-          const gapAsks = pipelineOut.gap_resolution?.gap_asks ?? [];
-          const requiredFields = getRequiredFields(pipelineOut.schema_match);
-
-          for (const ask of gapAsks) {
-            if (requiredFields.has(ask.field)) {
-              healthScore -= 10;
-            } else {
-              healthScore -= 3;
-            }
-          }
-
-          healthScore = Math.max(0, healthScore);
-
-          results.push({
-            index,
-            input: item.raw_text,
-            status: "success",
-            health_score: healthScore,
-            ...pipelineOut,
-          });
-        } catch (err) {
-          results.push({
-            index,
-            input: item.raw_text,
-            status: "error",
-            health_score: 0,
-            error: err instanceof Error ? err.message : String(err),
-            schema_match: "none",
-            extracted_fields: {},
-            extraction_notes: "",
-            validation_result: null,
-            gap_resolution: null,
-            is_unverified: true,
-            pipeline_warnings: [String(err)],
-          });
+      // Calculate Product Health Score
+      let healthScore = 100;
+      const flags = pipelineOut.validation_result?.flags ?? [];
+      for (const flag of flags) {
+        if (flag.severity === "error") {
+          healthScore -= 15;
+        } else if (flag.severity === "warning" || flag.severity === "missing") {
+          healthScore -= 5;
         }
       }
-    });
 
-  await Promise.all(workers);
+      const gapAsks = pipelineOut.gap_resolution?.gap_asks ?? [];
+      // Use schema_fields from classify to distinguish required vs optional gaps
+      const requiredFieldKeys = new Set(
+        (pipelineOut.classification_result?.schema_fields ?? [])
+          .filter((f: any) => f.required)
+          .map((f: any) => f.key as string)
+      );
+      for (const ask of gapAsks) {
+        if (requiredFieldKeys.has(ask.field)) {
+          healthScore -= 10;
+        } else {
+          healthScore -= 3;
+        }
+      }
 
-  // Sort results to align back to original order, then sort by health score ascending for summary list
+      healthScore = Math.max(0, healthScore);
+
+      results.push({
+        index,
+        input: item.raw_text,
+        status: "success",
+        health_score: healthScore,
+        ...pipelineOut,
+      });
+    } catch (err) {
+      results.push({
+        index,
+        input: item.raw_text,
+        status: "error",
+        health_score: 0,
+        error: err instanceof Error ? err.message : String(err),
+        schema_match: "none",
+        extracted_fields: {},
+        extraction_notes: "",
+        validation_result: null,
+        gap_resolution: null,
+        enrichment_result: null,
+        classification_result: null,
+        normalization_result: null,
+        delivery_formats: null,
+        delivery_record: null,
+        is_unverified: true,
+        pipeline_warnings: [String(err)],
+      });
+    }
+  }
+
+  // Sort results back to original order
   results.sort((a, b) => a.index - b.index);
 
   // Compute Aggregates
@@ -211,9 +332,10 @@ export async function POST(req: NextRequest) {
     totalGapAsks += res.gap_resolution?.gap_asks?.length ?? 0;
   }
 
-  const avgHealthScore = results.length > 0 ? Math.round(totalHealth / results.length) : 100;
+  const avgHealthScore =
+    results.length > 0 ? Math.round(totalHealth / results.length) : 100;
 
-  // Make a shallow copy of success results sorted by health score ascending
+  // Sorted copy (worst-first) for the dashboard breakdown
   const sortedProducts = [...results].sort((a, b) => a.health_score - b.health_score);
 
   return NextResponse.json(
@@ -223,7 +345,7 @@ export async function POST(req: NextRequest) {
       summary: {
         avg_health_score: avgHealthScore,
         validation_status_counts: {
-          valid: validCount,
+          valid:   validCount,
           flagged: flaggedCount,
           invalid: invalidCount,
         },

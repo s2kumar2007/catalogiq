@@ -1,4 +1,3 @@
-import HealthScoreDashboard from "@/components/HealthScoreDashboard";
 import type { PipelineResult as DashboardPipelineResult } from "@/components/HealthScoreDashboard";
 
 export interface BatchSummary {

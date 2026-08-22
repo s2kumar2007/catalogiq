@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useRef, ChangeEvent, FormEvent } from "react";
+import { useState, useRef, FormEvent } from "react";
 import ProductCard from "@/components/ProductCard";
 import HealthScoreDashboard from "@/components/HealthScoreDashboard";
 import type { BatchResponse } from "@/lib/batch-types";
 import Papa from "papaparse";
+import * as XLSX from "xlsx";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -153,6 +154,57 @@ export default function Home() {
     }
 
     setError("Please upload a CSV file or paste product text below.");
+  }
+
+  // ── Download helpers ──────────────────────────────────────────────────────
+
+  /** Flatten one product result into a plain object suitable for CSV/Excel export */
+  function flattenProduct(prod: any, idx: number): Record<string, string | number> {
+    // Prefer delivery_record (full Unilog 252-column shape) when available
+    if (prod.delivery_record && typeof prod.delivery_record === "object") {
+      return {
+        "#": idx + 1,
+        health_score: prod.health_score ?? "",
+        validation_status: prod.validation_result?.overall_status ?? (prod.is_unverified ? "unverified" : "valid"),
+        pipeline_warnings: (prod.pipeline_warnings ?? []).join(" | "),
+        ...prod.delivery_record,
+      };
+    }
+    // Fallback: flatten extracted_fields
+    const row: Record<string, string | number> = {
+      "#": idx + 1,
+      schema_match: prod.schema_match ?? "",
+      health_score: prod.health_score ?? "",
+      validation_status: prod.validation_result?.overall_status ?? (prod.is_unverified ? "unverified" : "valid"),
+      pipeline_warnings: (prod.pipeline_warnings ?? []).join(" | "),
+    };
+    for (const [key, field] of Object.entries(prod.extracted_fields ?? {})) {
+      const f = field as any;
+      row[key] = f.value ?? "";
+    }
+    return row;
+  }
+
+  function downloadCSV() {
+    if (!batchResponse) return;
+    const rows = batchResponse.products.map(flattenProduct);
+    const csv = Papa.unparse(rows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `catalogiq-${batchResponse.batch_id}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadExcel() {
+    if (!batchResponse) return;
+    const rows = batchResponse.products.map(flattenProduct);
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "CatalogIQ");
+    XLSX.writeFile(wb, `catalogiq-${batchResponse.batch_id}.xlsx`);
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -356,26 +408,81 @@ export default function Home() {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowRaw((v) => !v)}
-                className="text-xs px-3 py-1.5 rounded-lg transition"
-                style={{
-                  background: "var(--bg-elevated)",
-                  border: "1px solid var(--border-subtle)",
-                  color: "var(--text-secondary)",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--accent-blue)";
-                  e.currentTarget.style.color = "var(--text-primary)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border-subtle)";
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                }}
-              >
-                {showRaw ? "Hide JSON" : "View raw JSON"}
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Download CSV */}
+                <button
+                  type="button"
+                  id="download-csv-btn"
+                  onClick={downloadCSV}
+                  className="text-xs px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "var(--accent-cyan)";
+                    e.currentTarget.style.color = "var(--text-primary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-subtle)";
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 3v13M7 11l5 5 5-5M5 21h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  CSV
+                </button>
+
+                {/* Download Excel */}
+                <button
+                  type="button"
+                  id="download-excel-btn"
+                  onClick={downloadExcel}
+                  className="text-xs px-3 py-1.5 rounded-lg transition flex items-center gap-1.5"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "#22c55e";
+                    e.currentTarget.style.color = "var(--text-primary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-subtle)";
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                >
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 3v13M7 11l5 5 5-5M5 21h14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Excel
+                </button>
+
+                {/* Raw JSON toggle */}
+                <button
+                  type="button"
+                  onClick={() => setShowRaw((v) => !v)}
+                  className="text-xs px-3 py-1.5 rounded-lg transition"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--border-subtle)",
+                    color: "var(--text-secondary)",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = "var(--accent-blue)";
+                    e.currentTarget.style.color = "var(--text-primary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = "var(--border-subtle)";
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                >
+                  {showRaw ? "Hide JSON" : "View raw JSON"}
+                </button>
+              </div>
             </div>
 
             <HealthScoreDashboard
