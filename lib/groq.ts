@@ -150,6 +150,18 @@ function retryDelayMs(body?: string): number {
 // Public API
 // ---------------------------------------------------------------------------
 
+let lastCallTimestamp = 0;
+const MIN_CALL_SPACING_MS = 2500; // tune based on actual TPM budget / call size
+
+async function enforceMinSpacing() {
+  const now = Date.now();
+  const elapsed = now - lastCallTimestamp;
+  if (elapsed < MIN_CALL_SPACING_MS) {
+    await new Promise((r) => setTimeout(r, MIN_CALL_SPACING_MS - elapsed));
+  }
+  lastCallTimestamp = Date.now();
+}
+
 /**
  * Calls the Groq chat completions endpoint with automatic retry and fallback.
  *
@@ -173,6 +185,8 @@ export async function callGroq(
   model:        string = PRIMARY_MODEL,
   maxTokens:    number = 1024
 ): Promise<string> {
+  await enforceMinSpacing();
+
   if (!apiKey) {
     throw new Error(
       "[groq] No API key provided. Set GROQ_API_KEY in .env.local or pass it explicitly."

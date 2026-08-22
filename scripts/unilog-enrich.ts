@@ -62,7 +62,7 @@ const OUTPUT_CSV = path.join(OUT_DIR, "catalogiq_unilog_delivery.csv");
 const REPORT_JSON= path.join(OUT_DIR, "catalogiq_unilog_report.json");
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-const DELAY_MS = 12000; // keep Groq free-tier TPM usage stable across multi-call rows
+const DELAY_MS = 3000; // keep Groq free-tier TPM usage stable across multi-call rows
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── CSV reading ───────────────────────────────────────────────────────────────

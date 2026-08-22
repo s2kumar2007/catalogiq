@@ -70,17 +70,18 @@ export async function verifyOfficialManufacturerDomain(
 ): Promise<DomainVerificationResult> {
   const REJECT: DomainVerificationResult = {
     isOfficial: false,
-    confidence: "high",
+    confidence: "low",
     reasoning: "verification failed — defaulting to reject",
   };
 
-  const systemPrompt =
-    `You are verifying whether a website is a manufacturer's own official domain, \
+  const attempt = async (): Promise<DomainVerificationResult> => {
+    const systemPrompt =
+      `You are verifying whether a website is a manufacturer's own official domain, \
 as opposed to a retailer, marketplace, business directory, data aggregator, review site, \
 or any other third party. Return ONLY valid JSON — no explanation outside the object.`;
 
-  const userPrompt =
-    `Manufacturer being verified: "${manufacturerName}"
+    const userPrompt =
+      `Manufacturer being verified: "${manufacturerName}"
 \
 Candidate domain: "${domain}"
 \
@@ -106,7 +107,6 @@ Return ONLY this JSON shape, nothing else:
 \
 { "isOfficial": true_or_false, "confidence": "high"|"medium"|"low", "reasoning": "one sentence" }`;
 
-  try {
     const raw = await callGroq(systemPrompt, userPrompt, undefined, undefined, 256);
     const parsed = parseJsonResponse<{ isOfficial: boolean; confidence: string; reasoning: string }>(raw);
 
@@ -119,7 +119,17 @@ Return ONLY this JSON shape, nothing else:
       confidence,
       reasoning: String(parsed.reasoning ?? ""),
     };
+  };
+
+  try {
+    return await attempt();
   } catch {
-    return REJECT;
+    // one retry after a short pause
+    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      return await attempt();
+    } catch {
+      return REJECT;
+    }
   }
 }
