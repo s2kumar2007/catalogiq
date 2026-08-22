@@ -18,13 +18,14 @@
  * Primary: LLaMA 3.3 70B — best reasoning quality for validation tasks.
  * Groq's most capable model at time of project start.
  */
-const PRIMARY_MODEL  = "llama-3.3-70b-versatile";
+const PRIMARY_MODEL  = "openai/gpt-oss-120b";
+
 
 /**
  * Fallback: LLaMA 3.1 8B Instant — always available, extremely fast.
  * Quality is lower but sufficient for validation/reconciliation JSON output.
  */
-const FALLBACK_MODEL = "llama-3.1-8b-instant";
+const FALLBACK_MODEL = "openai/gpt-oss-20b";
 
 const GROQ_API_BASE = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -83,7 +84,8 @@ async function attemptGroq(
   model:       string,
   apiKey:      string,
   systemPrompt: string,
-  userContent:  string
+  userContent:  string,
+  maxTokens:    number
 ): Promise<AttemptResult> {
   const requestBody = {
     model,
@@ -92,7 +94,7 @@ async function attemptGroq(
       { role: "user",   content: userContent  },
     ],
     temperature: 0.2,
-    max_tokens:  8192,
+    max_tokens:  maxTokens,
   };
 
   let response: Response;
@@ -111,9 +113,6 @@ async function attemptGroq(
   }
 
   if (!response.ok) {
-    if (response.status === 413) {
-      return { ok: false, status: 413, body: "Validation skipped - data payload exceeded provider limits" };
-    }
     const body = await response.text();
     return { ok: false, status: response.status, body };
   }
@@ -136,6 +135,16 @@ async function attemptGroq(
 
 /** Returns a promise that resolves after `ms` milliseconds. */
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
+
+function retryDelayMs(body?: string): number {
+  if (!body) return 1000;
+  const match = body.match(/try again in ([\d.]+)\s*(ms|s)/i);
+  if (!match) return 1000;
+  const value = Number(match[1]);
+  if (!Number.isFinite(value)) return 1000;
+  const multiplier = match[2].toLowerCase() === "s" ? 1000 : 1;
+  return Math.min(30000, Math.max(1000, Math.ceil(value * multiplier) + 500));
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -161,7 +170,8 @@ export async function callGroq(
   systemPrompt: string,
   userContent:  string,
   apiKey:       string = process.env.GROQ_API_KEY ?? "",
-  model:        string = PRIMARY_MODEL
+  model:        string = PRIMARY_MODEL,
+  maxTokens:    number = 1024
 ): Promise<string> {
   if (!apiKey) {
     throw new Error(
@@ -170,7 +180,7 @@ export async function callGroq(
   }
 
   // ── Attempt 1: primary model ──────────────────────────────────────────────
-  let result = await attemptGroq(model, apiKey, systemPrompt, userContent);
+  let result = await attemptGroq(model, apiKey, systemPrompt, userContent, maxTokens);
 
   if (result.ok) {
     console.log(`[groq] ✓ served by PRIMARY (${model})`);
@@ -195,13 +205,14 @@ export async function callGroq(
     );
   }
 
-  // ── Attempt 2: retry primary after 1 s (429 / 503) ───────────────────────
+  // ── Attempt 2: retry primary after provider-guided wait (429 / 503) ───────
+  const primaryDelay = retryDelayMs(result.body);
   console.warn(
-    `[groq] HTTP ${result.status} on PRIMARY "${model}" — waiting 1 s then retrying…`
+    `[groq] HTTP ${result.status} on PRIMARY "${model}" — waiting ${Math.round(primaryDelay / 1000)}s then retrying…`
   );
-  await sleep(1000);
+  await sleep(primaryDelay);
 
-  result = await attemptGroq(model, apiKey, systemPrompt, userContent);
+  result = await attemptGroq(model, apiKey, systemPrompt, userContent, maxTokens);
 
   if (result.ok) {
     console.log(`[groq] ✓ served by PRIMARY on retry (${model})`);
@@ -219,11 +230,24 @@ export async function callGroq(
     `[groq] PRIMARY "${model}" failed twice — falling back to "${FALLBACK_MODEL}"…`
   );
 
-  result = await attemptGroq(FALLBACK_MODEL, apiKey, systemPrompt, userContent);
+  result = await attemptGroq(FALLBACK_MODEL, apiKey, systemPrompt, userContent, maxTokens);
 
   if (result.ok) {
     console.log(`[groq] ✓ served by FALLBACK (${FALLBACK_MODEL})`);
     return result.text!;
+  }
+
+  if (RETRYABLE_STATUSES.has(result.status)) {
+    const fallbackDelay = retryDelayMs(result.body);
+    console.warn(
+      `[groq] HTTP ${result.status} on FALLBACK "${FALLBACK_MODEL}" — waiting ${Math.round(fallbackDelay / 1000)}s then retrying…`
+    );
+    await sleep(fallbackDelay);
+    result = await attemptGroq(FALLBACK_MODEL, apiKey, systemPrompt, userContent, maxTokens);
+    if (result.ok) {
+      console.log(`[groq] ✓ served by FALLBACK on retry (${FALLBACK_MODEL})`);
+      return result.text!;
+    }
   }
 
   // All three attempts exhausted

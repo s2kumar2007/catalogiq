@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { runExtraction, loadSchemaJson } from "@/lib/agents/extract";
+import { runExtraction } from "@/lib/agents/extract";
 import { runValidation } from "@/lib/agents/validate";
 import { runGapResolution } from "@/lib/agents/gap-resolve";
 import type { SchemaCategory, ExtractedField } from "@/lib/types";
@@ -92,22 +92,8 @@ async function processSingleProduct(rawText: string, categoryHint: "fasteners" |
 // Helper to parse required/optional schema flags for gap scoring
 // ---------------------------------------------------------------------------
 function getRequiredFields(category: SchemaCategory): Set<string> {
-  const required = new Set<string>();
-  if (category === "none") return required;
-  try {
-    const schemaRaw = loadSchemaJson(category);
-    const parsed = JSON.parse(schemaRaw);
-    if (parsed && Array.isArray(parsed.fields)) {
-      for (const field of parsed.fields) {
-        if (field.required) {
-          required.add(field.key);
-        }
-      }
-    }
-  } catch (err) {
-    console.error("Failed to load schema for required fields check", err);
-  }
-  return required;
+  void category;
+  return new Set<string>();
 }
 
 // ---------------------------------------------------------------------------

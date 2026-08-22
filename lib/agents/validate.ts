@@ -37,6 +37,24 @@ export interface ValidationResultExtended extends ValidationResult {
  * @returns                ValidationResultExtended with normalised overall_status
  * @throws                 On Groq failure or JSON parse failure
  */
+function extractJson(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
+  }
+  return text;
+}
+
+/**
+ * Runs the Validation Agent against already-extracted fields and the
+ * schema for a known category.
+ *
+ * @param extractedFields  Output of runExtraction().extracted_fields
+ * @param category         Resolved category — must NOT be "none" or "auto"
+ * @returns                ValidationResultExtended with normalised overall_status
+ * @throws                 On Groq failure or JSON parse failure
+ */
 export async function runValidation(
   extractedFields: Record<string, ExtractedField>,
   category: "fasteners" | "electrical_connectors" | "Built-In Dishwashers",
@@ -103,7 +121,7 @@ export async function runValidation(
 
 
   // ── Parse ─────────────────────────────────────────────────────────────────
-  const result = parseJsonResponse<ValidationResultExtended>(rawResponse);
+  const result = parseJsonResponse<ValidationResultExtended>(extractJson(rawResponse));
 
   // ── Normalise overall_status ──────────────────────────────────────────────
   const flags      = result.flags ?? [];

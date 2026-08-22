@@ -3,11 +3,11 @@
  * Shared gap-resolution agent logic — used by /api/gap-resolve and the orchestrator.
  *
  * Identifies missing required fields, low-confidence fields, and validation
- * errors, then calls Gemini to either fill them confidently or generate
+ * errors, then calls Groq to either fill them confidently or generate
  * specific supplier asks.
  */
 
-import { callGemini, parseJsonResponse } from "@/lib/gemini";
+import { callGroq, parseJsonResponse } from "@/lib/groq";
 import { GAP_RESOLUTION_SYSTEM_PROMPT } from "@/lib/prompts";
 import type {
   ExtractedField,
@@ -54,7 +54,25 @@ export interface GapResolutionResult {
  * @param validationResult The validation output (may be null if validation was skipped).
  * @param category         The resolved schema category.
  * @returns                GapResolutionResult — fills, asks, and supplier draft.
- * @throws                 On Gemini failure or JSON parse failure.
+ * @throws                 On Groq failure or JSON parse failure.
+ */
+function extractJson(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
+  }
+  return text;
+}
+
+/**
+ * Runs the Gap-Resolution Agent against extracted fields and validation output.
+ *
+ * @param extractedFields  The current extracted fields for this product.
+ * @param validationResult The validation output (may be null if validation was skipped).
+ * @param category         The resolved schema category.
+ * @returns                GapResolutionResult — fills, asks, and supplier draft.
+ * @throws                 On Groq failure or JSON parse failure.
  */
 export async function runGapResolution(
   extractedFields: Record<string, ExtractedField>,
@@ -76,11 +94,11 @@ export async function runGapResolution(
     `Extracted fields:\n${JSON.stringify(extractedFields, null, 2)}\n\n` +
     `Validation result:\n${JSON.stringify(validationResult, null, 2)}`;
 
-  // ── Call Gemini ───────────────────────────────────────────────────────────
-  const rawResponse = await callGemini(GAP_RESOLUTION_SYSTEM_PROMPT, userContent);
+  // ── Call Groq ─────────────────────────────────────────────────────────────
+  const rawResponse = await callGroq(GAP_RESOLUTION_SYSTEM_PROMPT, userContent);
 
   // ── Parse ─────────────────────────────────────────────────────────────────
-  const result = parseJsonResponse<GapResolutionResult>(rawResponse);
+  const result = parseJsonResponse<GapResolutionResult>(extractJson(rawResponse));
 
   // ── Normalise ─────────────────────────────────────────────────────────────
   // Clamp confidence on fills to [0, 85] (agent should already cap, but be safe)

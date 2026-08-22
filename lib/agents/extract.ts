@@ -4,7 +4,7 @@
  * Keeps route handlers thin and avoids route-to-route HTTP calls.
  */
 
-import { callGemini, parseJsonResponse, GeminiContentPart } from "@/lib/gemini";
+import { callGroq, parseJsonResponse } from "@/lib/groq";
 import { EXTRACTION_SYSTEM_PROMPT } from "@/lib/prompts";
 import type { ExtractionResult, SchemaCategory } from "@/lib/types";
 import type { SchemaField } from "@/lib/agents/classify";
@@ -32,6 +32,46 @@ export interface ExtractInput {
 // Core extraction function
 // ---------------------------------------------------------------------------
 
+function extractJson(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
+  }
+  return text;
+}
+
+function fallbackExtraction(rawText?: string): ExtractionResult {
+  const text = rawText ?? "";
+  const fields: ExtractionResult["extracted_fields"] = {};
+  const add = (key: string, value: string, source: string) => {
+    const cleaned = value.trim();
+    if (!cleaned) return;
+    fields[key] = {
+      value: cleaned,
+      confidence: 80,
+      source_location: source,
+      extraction_method: "explicit",
+    };
+  };
+
+  const lineValue = (label: string) => {
+    const match = text.match(new RegExp(`^${label}:\\s*(.+)$`, "im"));
+    return match?.[1]?.trim() ?? "";
+  };
+
+  add("part_number", lineValue("Part Number"), "input_part_number");
+  add("description", lineValue("Description"), "input_description");
+  add("brand", lineValue("Brand"), "input_brand");
+  add("manufacturer", lineValue("Manufacturer"), "input_manufacturer");
+
+  return {
+    schema_match: "none",
+    extracted_fields: fields,
+    notes: "Fallback extraction used because Groq returned malformed or incomplete JSON.",
+  };
+}
+
 /**
  * Runs the Extraction Agent for a single product input.
  * Returns a typed ExtractionResult with confidence values clamped to [0, 99].
@@ -44,8 +84,8 @@ export async function runExtraction(input: ExtractInput): Promise<ExtractionResu
     throw new Error("Provide either rawText or imageBase64.");
   }
 
-  // ── Build user parts ──────────────────────────────────────────────────────
-  const userParts: GeminiContentPart[] = [];
+  // ── Build user content ────────────────────────────────────────────────────
+  let userContent = "";
 
   if (input.schemaFields && input.schemaFields.length > 0) {
     // Primary path: use LLM-generated schema fields from classify.ts.
@@ -53,35 +93,39 @@ export async function runExtraction(input: ExtractInput): Promise<ExtractionResu
     const fieldList = input.schemaFields
       .map((f) => `- ${f.label}${f.unit ? ` (unit: ${f.unit})` : ""}${f.required ? " [required]" : ""}`)
       .join("\n");
-    userParts.push({
-      type: "text",
-      data:
-        `Extract ALL of the following category-specific attribute fields from the product input below.\n` +
-        `Use these EXACT label names as your field keys:\n\n${fieldList}\n\n` +
-        `Also extract: brand, manufacturer, part_number, and any other identifiable product identifiers.\n` +
-        `Set schema_match to the product category classpath.\n\n` +
-        `Product input:`,
-    });
+    userContent +=
+      `Extract ALL of the following category-specific attribute fields from the product input below.\n` +
+      `Use these EXACT label names as your field keys:\n\n${fieldList}\n\n` +
+      `Also extract: brand, manufacturer, part_number, and any other identifiable product identifiers.\n` +
+      `Set schema_match to the product category classpath.\n\n` +
+      `Product input:\n`;
   } else {
     // Fallback path: No schema fields provided (e.g., classification failed due to rate limits).
-    userParts.push({
-      type: "text",
-      data:
-        `No specific schema was matched for this input. Extract all identifiable ` +
-        `product fields generically (use descriptive key names), following the same ` +
-        `output format. Set schema_match to "none".\n\n` +
-        `Product input:`,
-    });
+    userContent +=
+      `No specific schema was matched for this input. Extract all identifiable ` +
+      `product fields generically (use descriptive key names), following the same ` +
+      `output format. Set schema_match to "none".\n\n` +
+      `Product input:\n`;
   }
 
-  if (rawText)     userParts.push({ type: "text",  data: rawText });
-  if (imageBase64) userParts.push({ type: "image", data: imageBase64 });
+  if (rawText) {
+    userContent += rawText;
+  }
+  if (imageBase64) {
+    userContent += `\n[Image Data Provided: Base64 string length ${imageBase64.length}]`;
+  }
 
-  // ── Call Gemini ───────────────────────────────────────────────────────────
-  const rawResponse = await callGemini(EXTRACTION_SYSTEM_PROMPT, userParts);
+  // ── Call Groq ─────────────────────────────────────────────────────────────
+  const rawResponse = await callGroq(EXTRACTION_SYSTEM_PROMPT, userContent, undefined, undefined, 900);
 
   // ── Parse ─────────────────────────────────────────────────────────────────
-  const result = parseJsonResponse<ExtractionResult>(rawResponse);
+  let result: ExtractionResult;
+  try {
+    result = parseJsonResponse<ExtractionResult>(extractJson(rawResponse));
+  } catch (err) {
+    console.warn(`[extract] Groq JSON parse failed; using fallback extraction: ${err instanceof Error ? err.message : String(err)}`);
+    result = fallbackExtraction(rawText);
+  }
 
   // Clamp confidence values
   for (const field of Object.values(result.extracted_fields ?? {})) {

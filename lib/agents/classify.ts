@@ -3,12 +3,12 @@
  * Stage 3: Taxonomy & Classification Agent
  *
  * Responsible for matching a product to the correct classpath AND
- * dynamically generating a schema (field list) for that category using Gemini.
+ * dynamically generating a schema (field list) for that category using Groq.
  * No static schema files required — the LLM derives the attribute set from
  * the product text and the Expected Output format.
  */
 
-import { callGemini, parseJsonResponse } from "@/lib/gemini";
+import { callGroq, parseJsonResponse } from "@/lib/groq";
 
 export interface ClassificationInput {
   rawText: string;
@@ -64,19 +64,28 @@ Return ONLY valid JSON with this exact shape:
   ]
 }`;
 
+function extractJson(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
+  }
+  return text;
+}
+
 export async function runClassification(
   input: ClassificationInput
 ): Promise<ClassificationResult> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) throw new Error("GROQ_API_KEY not set");
 
   const userPrompt = `Classify this product and generate its attribute schema:
 
-${input.rawText}`;
+  ${input.rawText}`;
 
   try {
-    const responseText = await callGemini(SYSTEM_PROMPT, userPrompt, apiKey);
-    const parsed = parseJsonResponse<ClassificationResult>(responseText);
+    const responseText = await callGroq(SYSTEM_PROMPT, userPrompt, apiKey, undefined, 1400);
+    const parsed = parseJsonResponse<ClassificationResult>(extractJson(responseText));
 
     // Validate shape
     if (!parsed.classpath || !Array.isArray(parsed.schema_fields)) {

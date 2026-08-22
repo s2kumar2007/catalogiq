@@ -36,6 +36,15 @@ export interface ReconciliationResult {
 // Core Reconciliation function
 // ---------------------------------------------------------------------------
 
+function extractJson(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
+  }
+  return text;
+}
+
 export async function runReconciliation(
   sources: ReconciliationSourceInput[]
 ): Promise<ReconciliationResult> {
@@ -50,7 +59,7 @@ export async function runReconciliation(
   const rawResponse = await callGroq(RECONCILIATION_SYSTEM_PROMPT, userContent);
 
   // ── Parse ─────────────────────────────────────────────────────────────────
-  const result = parseJsonResponse<ReconciliationResult>(rawResponse);
+  const result = parseJsonResponse<ReconciliationResult>(extractJson(rawResponse));
 
   // Normalise arrays and maps
   if (!result.reconciled_fields) {

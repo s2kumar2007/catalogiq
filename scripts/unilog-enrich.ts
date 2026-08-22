@@ -8,8 +8,8 @@
  *
  * What this does (one clear pipeline, no regex shortcut):
  *   For each input row from the Input CSV:
- *     1. classify.ts  → Gemini: determine classpath + category-specific schema_fields
- *     2. extract.ts   → Gemini: extract field values using those schema_fields
+ *     1. classify.ts  → Groq: determine classpath + category-specific schema_fields
+ *     2. extract.ts   → Groq: extract field values using those schema_fields
  *     3. normalize.ts → canonicalize names, fix UOM spacing, drop placeholders
  *     4. format.ts    → assemble Unilog delivery record with dynamic attributes
  *
@@ -31,7 +31,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { loadEnvConfig } from "@next/env";
 
-// Load Next.js environment variables (.env.local) so GEMINI_API_KEY is available
+// Load Next.js environment variables (.env.local) so GROQ_API_KEY is available
 loadEnvConfig(process.cwd());
 
 // ── LLM agent imports (TypeScript, resolved via tsconfig paths @/*) ──────────
@@ -59,7 +59,7 @@ const OUTPUT_CSV = path.join(OUT_DIR, "catalogiq_unilog_delivery.csv");
 const REPORT_JSON= path.join(OUT_DIR, "catalogiq_unilog_report.json");
 
 // ── Rate limiting ─────────────────────────────────────────────────────────────
-const DELAY_MS = 500; // ms between rows (3 LLM calls each → ~1.5s per row at 0.5s delay)
+const DELAY_MS = 8000; // keep Groq free-tier TPM usage stable across multi-call rows
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── CSV reading ───────────────────────────────────────────────────────────────
@@ -327,7 +327,7 @@ async function main() {
     },
     // ── Category classification stats ─────────────────────────────────────
     category_detection: {
-      strategy: "LLM classify (Gemini) → classpath + schema_fields per product",
+      strategy: "LLM classify (Groq) → classpath + schema_fields per product",
       gt_peek_removed: true,
       source_distribution: (() => {
         const counts: Record<string, number> = {};

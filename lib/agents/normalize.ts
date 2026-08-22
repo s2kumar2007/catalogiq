@@ -4,12 +4,12 @@
  *
  * Normalizes extracted fields by:
  *  1. Dropping placeholder values (-- Unbranded --, etc.)
- *  2. Using Gemini to canonicalize manufacturer/brand names against
+ *  2. Using Groq to canonicalize manufacturer/brand names against
  *     the Expected Output canonical strings (LLM-based, not a hardcoded list)
  *  3. Fixing UOM spacing ("24in" → "24 in", "120V" → "120 V")
  */
 
-import { callGemini, parseJsonResponse } from "@/lib/gemini";
+import { callGroq, parseJsonResponse } from "@/lib/groq";
 import type { ExtractedField } from "@/lib/types";
 
 export interface NormalizationResult {
@@ -26,14 +26,23 @@ const PLACEHOLDERS = new Set([
 ]);
 
 /**
- * Uses Gemini to canonicalize a manufacturer/brand name.
+ * Uses Groq to canonicalize a manufacturer/brand name.
  * The LLM knows standard brand conventions (casing, ®, ™ symbols).
  */
+function extractJson(text: string): string {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end !== -1 && end > start) {
+    return text.substring(start, end + 1);
+  }
+  return text;
+}
+
 async function canonicalizeName(
   rawName: string,
   fieldType: "manufacturer" | "brand"
 ): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return rawName;
 
   const prompt =
@@ -46,8 +55,8 @@ Input: "${rawName}"
 Return JSON: { "canonical": "string" }`;
 
   try {
-    const text = await callGemini("Return only valid JSON.", prompt, apiKey);
-    const parsed = parseJsonResponse<{ canonical?: string }>(text);
+    const text = await callGroq("Return only valid JSON.", prompt, apiKey, undefined, 120);
+    const parsed = parseJsonResponse<{ canonical?: string }>(extractJson(text));
     return parsed.canonical ?? rawName;
   } catch {
     return rawName;
