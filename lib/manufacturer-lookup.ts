@@ -4,6 +4,22 @@ import fs from "fs";
 
 let masterList: { name: string; brand: string }[] | null = null;
 
+const DIVISION_SUFFIX_PATTERNS: RegExp[] = [
+  /\s+con\s+prod\s+dv\.?$/i,        // "Con Prod Dv" = Consumer Products Division
+  /\s+consumer\s+products?\s+div(ision)?\.?$/i,
+  /\s+prod(ucts)?\s+div(ision)?\.?$/i,
+  /\s+co\.?\s+inc\.?$/i,
+  /\s+mfg\.?\s+co\.?$/i,
+];
+
+export function stripDivisionSuffix(rawName: string): string {
+  let cleaned = rawName.trim();
+  for (const pattern of DIVISION_SUFFIX_PATTERNS) {
+    cleaned = cleaned.replace(pattern, "").trim();
+  }
+  return cleaned;
+}
+
 function loadMasterList() {
   if (masterList !== null) return masterList;
 

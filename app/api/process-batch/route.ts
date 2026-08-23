@@ -28,8 +28,8 @@ import { discoverBrandFromMPN }               from "@/lib/agents/discover-brand"
 import type { BrandDiscoveryResult }          from "@/lib/agents/discover-brand";
 import { buildUnilogDeliveryRecord, loadDeliverySchema } from "@/lib/unilog-format";
 import { canonicalizeName } from "@/lib/agents/normalize";
-import { matchManufacturer } from "@/lib/manufacturer-lookup";
-import { discoverDocumentLinks } from "@/lib/agents/discover-documents";
+import { matchManufacturer, stripDivisionSuffix } from "@/lib/manufacturer-lookup";
+import { discoverDocumentLinks, discoverProductImages } from "@/lib/agents/discover-documents";
 import type { ExtractedField }        from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -251,10 +251,11 @@ async function processSingleProduct(
   let canonicalManufacturer = finalBrand?.name ?? "";
   let manufacturerMatched = false;
   if (finalBrand?.name) {
-    const lookup = matchManufacturer(finalBrand.name);
+    const cleanedName = stripDivisionSuffix(finalBrand.name);
+    const lookup = matchManufacturer(cleanedName);
     canonicalManufacturer = lookup.matched
       ? lookup.name
-      : await canonicalizeName(finalBrand.name, "manufacturer");
+      : await canonicalizeName(cleanedName, "manufacturer");
     manufacturerMatched = lookup.matched;
   }
 
@@ -277,6 +278,18 @@ async function processSingleProduct(
         };
         if (videoLinks[0]) enrichmentResult.extractedAttributes["Video Link"] = videoLinks[0];
         if (videoLinks[1]) enrichmentResult.extractedAttributes["Video Link 1"] = videoLinks[1];
+
+        const productImages = await discoverProductImages(
+          enrichmentResult.discoveredDomain,
+          mpn,
+          manuf
+        );
+        if (productImages.length > 0) {
+          enrichmentResult.extractedAttributes["Product Image"] = productImages[0];
+          for (let i = 1; i < productImages.length; i++) {
+            enrichmentResult.extractedAttributes[`Alternate Image ${i}`] = productImages[i];
+          }
+        }
       }
     } catch (err) {
       console.error(`[batch-enrich-error] MPN=${mpn} | Full error:`, err);
@@ -291,45 +304,43 @@ async function processSingleProduct(
   }
 
   console.log(`[diag] MPN=${mpn} | resolveBrand=${brandResolved?.name ?? "null"} (${brandResolved?.sourceKey ?? "-"}) | discoveryRan=${!brandResolved} | discoveryResult=${brandDiscoveryResult?.discovered ?? "n/a"} (${brandDiscoveryResult?.confidence ?? "-"}) | finalBrand=${finalBrand?.name ?? "null"} | manufForEnrich="${manuf}" | enrichAttempted=${!!manuf && !!mpn} | officialDataFound=${enrichmentResult?.officialDataFound ?? "n/a"} | domainFound=${enrichmentResult?.discoveredDomain ?? "n/a"} | specsFound=${enrichmentResult?.extractedAttributes ? Object.keys(enrichmentResult.extractedAttributes).length : 0} | manufacturerMatched=${manufacturerMatched}`);
+  
+  console.log(`[pipeline] MPN=${mpn} classifyOk=${classificationResult?.classpath !== "Unknown>Uncategorized"} extractRan=${!!extractionResult} enrichRan=${!!enrichmentResult} schemaFieldCount=${classificationResult?.schema_fields?.length ?? 0}`);
 
   // ── 6. Normalization ──────────────────────────────────────────────────────
   let normalizationResult = null;
-  if (!isUnverified) {
-    try {
-      normalizationResult = await runNormalization(finalExtractedFields);
-      finalExtractedFields = normalizationResult.normalized_fields;
-    } catch (err) {
-      pipelineWarnings.push(
-        `Normalization failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
+  try {
+    normalizationResult = await runNormalization(finalExtractedFields);
+    finalExtractedFields = normalizationResult.normalized_fields;
+  } catch (err) {
+    pipelineWarnings.push(
+      `Normalization failed: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   // ── 7. Formatting ─────────────────────────────────────────────────────────
   let formattingResult = null;
-  if (!isUnverified && normalizationResult) {
-    try {
-      formattingResult = await runFormatting({
-        normalizedFields:     finalExtractedFields,
-        classificationResult: classificationResult ?? undefined,
-        officialSourceData:   enrichmentResult?.extractedAttributes ?? undefined,
-        resolvedBrand:        finalBrand,
-        resolvedManufacturer: finalManufacturerName
-          ? { name: finalManufacturerName, sourceKey: finalBrand?.sourceKey ?? "resolved" }
-          : null,
-        sourceUrl:            enrichmentResult?.sourceUrl,
-        referenceUrls:        enrichmentResult?.referenceUrls,
-        productImageUrl:      enrichmentResult?.productImageUrl,
-        alternateImageUrls:   enrichmentResult?.alternateImageUrls,
-        specSheetUrl:         enrichmentResult?.specSheetUrl,
-      });
-      console.log(`[format-debug] MPN=${mpn} formatting SUCCEEDED - delivery_columns count: ${formattingResult?.delivery_columns?.length ?? 0}, delivery_record keys: ${Object.keys(formattingResult?.delivery_record ?? {}).length}`);
-    } catch (err) {
-      console.error(`[format-debug] MPN=${mpn} formatting FAILED:`, err);
-      pipelineWarnings.push(
-        `Formatting failed: ${err instanceof Error ? err.message : String(err)}`
-      );
-    }
+  try {
+    formattingResult = await runFormatting({
+      normalizedFields:     finalExtractedFields,
+      classificationResult: classificationResult ?? undefined,
+      officialSourceData:   enrichmentResult?.extractedAttributes ?? undefined,
+      resolvedBrand:        finalBrand,
+      resolvedManufacturer: finalManufacturerName
+        ? { name: finalManufacturerName, sourceKey: finalBrand?.sourceKey ?? "resolved" }
+        : null,
+      sourceUrl:            enrichmentResult?.sourceUrl,
+      referenceUrls:        enrichmentResult?.referenceUrls,
+      productImageUrl:      enrichmentResult?.productImageUrl,
+      alternateImageUrls:   enrichmentResult?.alternateImageUrls,
+      specSheetUrl:         enrichmentResult?.specSheetUrl,
+    });
+    console.log(`[format-debug] MPN=${mpn} formatting SUCCEEDED - delivery_columns count: ${formattingResult?.delivery_columns?.length ?? 0}, delivery_record keys: ${Object.keys(formattingResult?.delivery_record ?? {}).length}`);
+  } catch (err) {
+    console.error(`[format-debug] MPN=${mpn} formatting FAILED:`, err);
+    pipelineWarnings.push(
+      `Formatting failed: ${err instanceof Error ? err.message : String(err)}`
+    );
   }
 
   const fallbackDelivery = !formattingResult

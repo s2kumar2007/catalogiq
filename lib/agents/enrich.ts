@@ -276,8 +276,14 @@ async function parseSpecsFromContent(
   partNumber: string
 ): Promise<Record<string, string>> {
   const systemPrompt = `You extract product specification key-value pairs from raw webpage text. Return ONLY valid JSON: a flat object mapping attribute names to their values, for example:
-{"Voltage Rating": "120 V", "Country Of Origin": "USA", "Warranty": "5 Year Limited"}.
+{"Voltage Rating": "120 V", "Country Of Origin": "USA", "Warranty": "5 Year Limited", "UPC": "078477012345", "EAN": "5012345678900", "GTIN": "00078477012345", "UNSPSC": "39121517"}.
 Include "Country Of Origin" and "Warranty" ONLY if the text explicitly states them — do not infer a country from the manufacturer's headquarters, and do not infer a warranty term from category norms. If a field is not explicitly stated in the text, omit it entirely from the JSON. If no specs are found at all, return {}.
+
+UPC, EAN, and GTIN are numeric identifier codes — only include them if the exact digit string appears in the text. Do not construct, pad, or guess a check digit. UNSPSC is an 8-digit classification code — only include it if explicitly labeled as UNSPSC in the source; do not infer it from the product category.
+
+List Price must include the currency if stated (e.g. '$24.99'). Selling Qty, Selling UOM, Standard Packaging Information should also be extracted if present. Selling UOM must use the approved UOM abbreviations from the project's UOM standards (e.g. 'EA', 'BX', 'CS') — if the page states a unit that isn't in approved form, still extract it verbatim here; the normalize stage will convert it later, do not convert it yourself in this step.
+
+For any physical dimension (length, height, width, weight, volume), extract the numeric value and its unit SEPARATELY as two fields, e.g. {"LENGTH": "24", "LENGTH_UOM": "in"}. Use the unit exactly as written in the source text — do not convert units yourself. If a dimension is given as a range or is ambiguous, leave both fields blank rather than guessing which value to use.
 
 In addition to technical specifications, also extract these if genuinely present on the page:
 - Standard/Approvals: any listed certifications, standards compliance, or regulatory approvals (e.g. 'UL Listed', 'ENERGY STAR Certified', 'NSF Certified', 'ASSE 1006'). If multiple are listed, return them as a single pipe-separated string matching this format: 'CERT1|CERT2|CERT3'. Only include certifications actually visible on the page - do not assume standard certifications for a product category.`;

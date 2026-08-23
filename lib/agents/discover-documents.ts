@@ -16,6 +16,10 @@ const DOCUMENT_TARGETS: { field: string; queryHint: string }[] = [
   { field: "Compatibility Chart", queryHint: "compatibility chart" },
   { field: "Size Chart", queryHint: "size chart dimensions" },
   { field: "Product Label/Insert", queryHint: "product label insert" },
+  { field: "SDS", queryHint: "safety data sheet SDS pdf" },
+  { field: "SDS_1", queryHint: "material safety data sheet MSDS pdf" },
+  { field: "Warranty Information", queryHint: "warranty terms policy pdf" },
+  { field: "Catalog", queryHint: "product catalog pdf" },
 ];
 
 function validateDomain(url: string, expectedDomain: string): boolean {
@@ -88,4 +92,42 @@ export async function discoverDocumentLinks(
   }
 
   return { links, videoLinks };
+}
+
+export async function discoverProductImages(
+  domain: string,
+  partNumber: string,
+  manufacturerName: string
+): Promise<string[]> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) throw new Error("TAVILY_API_KEY not set");
+  const query = `${manufacturerName} ${partNumber} product image`;
+  try {
+    const res = await fetch(TAVILY_API_BASE, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query,
+        search_depth: "basic",
+        include_domains: [domain],
+        include_images: true,
+        max_results: 5,
+      }),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    const images: string[] = (json?.images ?? [])
+      .filter((imgUrl: string) => {
+        try {
+          return validateDomain(imgUrl, domain);
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, 5);
+    return images;
+  } catch {
+    return [];
+  }
 }

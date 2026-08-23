@@ -36,8 +36,8 @@ import { discoverBrandFromMPN }               from "@/lib/agents/discover-brand"
 import type { BrandDiscoveryResult }          from "@/lib/agents/discover-brand";
 import type { ExtractedField }        from "@/lib/types";
 import { canonicalizeName } from "@/lib/agents/normalize";
-import { matchManufacturer } from "@/lib/manufacturer-lookup";
-import { discoverDocumentLinks } from "@/lib/agents/discover-documents";
+import { matchManufacturer, stripDivisionSuffix } from "@/lib/manufacturer-lookup";
+import { discoverDocumentLinks, discoverProductImages } from "@/lib/agents/discover-documents";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -352,10 +352,11 @@ export async function POST(req: NextRequest) {
 
   let canonicalManufacturer = finalBrand?.name ?? "";
   if (finalBrand?.name) {
-    const lookup = matchManufacturer(finalBrand.name);
+    const cleanedName = stripDivisionSuffix(finalBrand.name);
+    const lookup = matchManufacturer(cleanedName);
     canonicalManufacturer = lookup.matched
       ? lookup.name
-      : await canonicalizeName(finalBrand.name, "manufacturer");
+      : await canonicalizeName(cleanedName, "manufacturer");
   }
 
   const manuf = canonicalManufacturer;
@@ -376,6 +377,18 @@ export async function POST(req: NextRequest) {
         };
         if (videoLinks[0]) enrichmentResult.extractedAttributes["Video Link"] = videoLinks[0];
         if (videoLinks[1]) enrichmentResult.extractedAttributes["Video Link 1"] = videoLinks[1];
+
+        const productImages = await discoverProductImages(
+          enrichmentResult.discoveredDomain,
+          mpn,
+          manuf
+        );
+        if (productImages.length > 0) {
+          enrichmentResult.extractedAttributes["Product Image"] = productImages[0];
+          for (let i = 1; i < productImages.length; i++) {
+            enrichmentResult.extractedAttributes[`Alternate Image ${i}`] = productImages[i];
+          }
+        }
       }
     } catch (err) {
       pipelineWarnings.push(`Enrichment failed: ${err instanceof Error ? err.message : String(err)}`);
