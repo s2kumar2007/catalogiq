@@ -14,14 +14,20 @@ function mapToResultRows(products: any[]): ResultRow[] {
       "unknown";
 
     const brandValue =
+      p.resolved_brand?.brand_name ??
+      p.delivery_record?.BRAND_NAME ??
       normFields.brand?.value ??
       normFields.manufacturer?.value ??
-      "Unbranded";
+      "Needs brand review";
 
     return {
       part: mpn,
       brand: brandValue,
-      status: p.enrichment_result?.officialDataFound ? "enriched" : "flagged",
+      status: p.enrichment_result?.officialDataFound
+        ? "enriched"
+        : p.resolved_brand?.brand_name
+          ? "resolved"
+          : "flagged",
       conf: p.classification_result?.confidence ?? null,
     };
   });
@@ -74,7 +80,7 @@ export default function Page() {
             manuf ? `Manufacturer: ${manuf}` : null,
           ].filter(Boolean).join("\n");
 
-          return { raw_text };
+          return { raw_text, source_row: r };
         });
 
         try {

@@ -326,6 +326,8 @@ export async function POST(req: NextRequest) {
   const mpnResolved   = resolveMpnForEnrichment(finalExtractedFields);
 
   let finalBrand = brandResolved;
+  let finalBrandName = brandResolved?.name;
+  let finalManufacturerName = brandResolved?.name;
   let brandDiscoveryResult: BrandDiscoveryResult | null = null;
 
   if (!brandResolved) {
@@ -335,9 +337,11 @@ export async function POST(req: NextRequest) {
     });
     if (brandDiscoveryResult.discovered && brandDiscoveryResult.confidence !== "low") {
       finalBrand = {
-        name: brandDiscoveryResult.manufacturerName ?? brandDiscoveryResult.brandName ?? "",
+        name: brandDiscoveryResult.brandName ?? brandDiscoveryResult.manufacturerName ?? "",
         sourceKey: "mpn_web_search",
       };
+      finalBrandName = brandDiscoveryResult.brandName ?? brandDiscoveryResult.manufacturerName;
+      finalManufacturerName = brandDiscoveryResult.manufacturerName ?? brandDiscoveryResult.brandName;
     }
   }
 
@@ -379,7 +383,9 @@ export async function POST(req: NextRequest) {
         classificationResult: classificationResult || undefined,
         officialSourceData: enrichmentResult?.officialDataFound ? enrichmentResult.extractedAttributes : undefined,
         resolvedBrand: finalBrand,
-        resolvedManufacturer: finalBrand,
+        resolvedManufacturer: finalManufacturerName
+          ? { name: finalManufacturerName, sourceKey: finalBrand?.sourceKey ?? "resolved" }
+          : null,
         sourceUrl: enrichmentResult?.sourceUrl,
         referenceUrls: enrichmentResult?.referenceUrls,
       });
@@ -405,6 +411,11 @@ export async function POST(req: NextRequest) {
       delivery_record:      formattingResult?.delivery_record ?? null,
       delivery_columns:     formattingResult?.delivery_columns ?? [],
       brand_discovery:      brandDiscoveryResult ?? null,
+      resolved_brand: {
+        brand_name: finalBrandName ?? null,
+        manufacturer_name: finalManufacturerName ?? null,
+        source: finalBrand?.sourceKey ?? null,
+      },
       is_unverified:        isUnverified,
       pipeline_warnings:    pipelineWarnings,
     },
