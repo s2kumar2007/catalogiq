@@ -146,6 +146,10 @@ async function main() {
       const manuf = (row["Part_Manuf"] ?? row["MANUFACTURER_NAME"] ?? "").toLowerCase();
       const brand = (row["E1_Brand"] ?? "").toLowerCase();
       const desc  = (row["Part_Desc"] ?? "").toLowerCase();
+      if (mfrFilter === "test7") {
+          const mpn = (row["Mfg_Part_Num"] ?? "").trim();
+          return ["HOM2040M200PRB", "HOM3060L225PGC", "QO612L100RBCP", "DSQ12B", "DSQ22B", "DSQ26B", "DSQ32B"].includes(mpn);
+      }
       return manuf.includes(mfrFilter) || brand.includes(mfrFilter) || desc.includes(mfrFilter);
     });
   }
@@ -238,22 +242,21 @@ async function main() {
       // ── Stage 4: Enrich (manufacturer-site-only live search) ─────────────
       let enrichmentResult;
       try {
-        if (!manufForEnrich || !mpnForEnrich) {
-            throw new Error(`Enrichment skipped: missing brand or mpn`);
-        }
         enrichmentResult = await runEnrichment({
           manufacturerName: manufForEnrich,
           partNumber: mpnForEnrich,
+          productDescription: desc,
         });
         console.log(`  → enrich: ${enrichmentResult.officialDataFound ? "✓" : "✗"} ${enrichmentResult.status}`);
       } catch (err) {
-        console.error(`[batch-enrich-error] MPN=${mpn} | Full error:`, err);
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`  → enrich: error — ${msg}`);
-        enrichmentResult = { officialDataFound: false, status: `needs review - enrichment threw: ${msg}` };
+        console.log(`  → enrich: ✗ failed (${err})`);
+        enrichmentResult = {
+          officialDataFound: false,
+          status: `error: ${err}`,
+        };
       }
 
-      console.log(`[diag] MPN=${mpn} | resolveBrand=${brandResolved?.name ?? "null"} (${brandResolved?.sourceKey ?? "-"}) | discoveryRan=${!brandResolved} | discoveryResult=${brandDiscoveryResult?.discovered ?? "n/a"} (${brandDiscoveryResult?.confidence ?? "-"}) | finalBrand=${finalBrand?.name ?? "null"} | manufForEnrich="${manufForEnrich}" | enrichAttempted=${!!manufForEnrich && !!mpnForEnrich} | officialDataFound=${enrichmentResult?.officialDataFound ?? "n/a"} | domainFound=${enrichmentResult?.discoveredDomain ?? "n/a"} | specsFound=${enrichmentResult?.extractedAttributes ? Object.keys(enrichmentResult.extractedAttributes).length : 0}`);
+      console.log(`[diag] MPN=${mpn} | resolveBrand=${finalBrand?.name || 'none'} (${finalBrand?.sourceKey || 'none'}) | discoveryRan=${!brandResolved} | discoveryResult=${brandDiscoveryResult?.discovered ?? "n/a"} | finalBrand=${finalBrand?.name || 'none'} | manufForEnrich="${manufForEnrich}" | enrichAttempted=${!!enrichmentResult} | officialDataFound=${enrichmentResult.officialDataFound} | domainFound=${enrichmentResult.discoveredDomain || 'none'} | specsFound=${enrichmentResult.extractedAttributes ? Object.keys(enrichmentResult.extractedAttributes).length : 0}`);
 
       // ── Stage 4: Normalize ───────────────────────────────────────────────
       const normResult = await runNormalization(extractResult.extracted_fields);
@@ -269,9 +272,8 @@ async function main() {
         fmtResult = await runFormatting({
           normalizedFields: normResult.normalized_fields,
           classificationResult: classResult,
-          officialSourceData: enrichmentResult.officialDataFound
-            ? enrichmentResult.extractedAttributes
-            : undefined,
+          officialSourceData: enrichmentResult.extractedAttributes,
+
           resolvedBrand: finalBrand,
           resolvedManufacturer: finalBrand,
           sourceUrl: enrichmentResult.sourceUrl,
