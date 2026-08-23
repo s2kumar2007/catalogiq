@@ -57,6 +57,8 @@ function isStaticCategory(s: string): s is StaticCategory {
 
 interface BatchProductInput {
   raw_text: string;
+  /** Original CSV fields are retained as a reliable fallback for identifiers. */
+  source_row?: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +66,8 @@ interface BatchProductInput {
 // ---------------------------------------------------------------------------
 async function processSingleProduct(
   rawText: string,
-  categoryHint: "fasteners" | "electrical_connectors" | "auto"
+  categoryHint: "fasteners" | "electrical_connectors" | "auto",
+  sourceRow?: Record<string, string>
 ) {
   const pipelineWarnings: string[] = [];
 
@@ -96,7 +99,19 @@ async function processSingleProduct(
     );
   }
 
-  finalExtractedFields = extractionResult.extracted_fields;
+  const sourceFields = Object.fromEntries(
+    Object.entries(sourceRow ?? {})
+      .filter(([, value]) => String(value ?? "").trim())
+      .map(([key, value]) => [key, {
+        value: String(value).trim(),
+        confidence: 1,
+        source_location: `input_csv.${key}`,
+        extraction_method: "explicit",
+      } as ExtractedField])
+  );
+  // The model extraction keeps precedence for semantic fields such as `brand`,
+  // while the raw CSV preserves exact MPNs and supplier description text.
+  finalExtractedFields = { ...sourceFields, ...extractionResult.extracted_fields };
   const extractionNotes = extractionResult.notes ?? "";
 
   // If classification didn't resolve a category, fall back to extraction's guess
@@ -150,6 +165,8 @@ async function processSingleProduct(
   const mpnResolved   = resolveMpnForEnrichment(finalExtractedFields);
 
   let finalBrand = brandResolved;
+  let finalBrandName = brandResolved?.name;
+  let finalManufacturerName = brandResolved?.name;
   let brandDiscoveryResult: BrandDiscoveryResult | null = null;
 
   if (!brandResolved) {
@@ -159,9 +176,11 @@ async function processSingleProduct(
     });
     if (brandDiscoveryResult.discovered && brandDiscoveryResult.confidence !== "low") {
       finalBrand = {
-        name: brandDiscoveryResult.manufacturerName ?? brandDiscoveryResult.brandName ?? "",
+        name: brandDiscoveryResult.brandName ?? brandDiscoveryResult.manufacturerName ?? "",
         sourceKey: "mpn_web_search",
       };
+      finalBrandName = brandDiscoveryResult.brandName ?? brandDiscoveryResult.manufacturerName;
+      finalManufacturerName = brandDiscoveryResult.manufacturerName ?? brandDiscoveryResult.brandName;
     }
   }
 
@@ -208,7 +227,9 @@ async function processSingleProduct(
         classificationResult: classificationResult ?? undefined,
         officialSourceData:   enrichmentResult?.extractedAttributes ?? undefined,
         resolvedBrand:        finalBrand,
-        resolvedManufacturer: finalBrand,
+        resolvedManufacturer: finalManufacturerName
+          ? { name: finalManufacturerName, sourceKey: finalBrand?.sourceKey ?? "resolved" }
+          : null,
         sourceUrl:            enrichmentResult?.sourceUrl,
         referenceUrls:        enrichmentResult?.referenceUrls,
       });
@@ -236,6 +257,11 @@ async function processSingleProduct(
     is_unverified:         isUnverified,
     pipeline_warnings:     pipelineWarnings,
     brand_discovery:       brandDiscoveryResult ?? null,
+    resolved_brand: {
+      brand_name: finalBrandName ?? null,
+      manufacturer_name: finalManufacturerName ?? null,
+      source: finalBrand?.sourceKey ?? null,
+    },
   };
 }
 
@@ -277,7 +303,7 @@ export async function POST(req: NextRequest) {
   for (let index = 0; index < products.length; index++) {
     const item = products[index];
     try {
-      const pipelineOut = await processSingleProduct(item.raw_text, categoryHint);
+      const pipelineOut = await processSingleProduct(item.raw_text, categoryHint, item.source_row);
 
       // Calculate Product Health Score
       let healthScore = 100;

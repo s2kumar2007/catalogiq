@@ -29,13 +29,14 @@ const DISTRIBUTOR_SIGNALS = [
  *
  * Detection is signal-based (no hardcoded brand list):
  *  - Contains any of the DISTRIBUTOR_SIGNALS words (case-insensitive)
- *  - Contains a parenthetical acronym like "(APPDE)", "(JAMIN)", etc.
+ *  - Manufacturer codes in parentheses are deliberately ignored.  Many
+ *    legitimate manufacturers in the source catalog use them (for example,
+ *    "Freud Inc (2435)"), so treating every code as a distributor discarded
+ *    good brand evidence.
  */
 function looksLikeDistributor(name: string): boolean {
   const lower = name.toLowerCase();
   if (DISTRIBUTOR_SIGNALS.some((s) => lower.includes(s))) return true;
-  // Parenthetical all-caps code: e.g. "(APPDE)", "(JAMIN)"
-  if (/\([A-Z]{3,}\)/.test(name)) return true;
   return false;
 }
 
@@ -61,6 +62,50 @@ function isPlaceholderValue(value: string): boolean {
 }
 
 /**
+ * Detects a brand explicitly printed in the supplier description. This is a
+ * deterministic first pass, so a placeholder source-brand value can never
+ * hide a plainly stated brand such as "Diablo" or "Kitchen Aid".
+ */
+function resolveBrandFromDescription(
+  fields: Record<string, ExtractedField>
+): { name: string; sourceKey: string } | null {
+  const description = Object.entries(fields)
+    .filter(([key]) => /part[_ ]?desc|description/i.test(key))
+    .map(([, field]) => String(field.value ?? ""))
+    .join(" ")
+    .toLowerCase();
+
+  const signatures: Array<[RegExp, string]> = [
+    [/\bkitchen\s*aid\b/i, "KitchenAid"],
+    [/\bspeed\s*queen\b|\bsq\s+(?:elect|gas|washer|dryer)/i, "Speed Queen"],
+    [/\bblack\s*(?:&|and)?\s*decker\b/i, "BLACK+DECKER"],
+    [/\bdewalt\b|\bdeWlt\b/i, "DEWALT"],
+    [/\bmilw(?:aukee)?\b/i, "Milwaukee"],
+    [/\bdiablo\b/i, "Diablo"],
+    [/\bwhirlpool\b/i, "Whirlpool"],
+    [/\bfrigidaire\b/i, "Frigidaire"],
+    [/\bge\s+(?:dishwasher|gas|elect|washer|dryer)/i, "GE Appliances"],
+    [/\blg\s+(?:dishwasher|laundry|washer|dryer)/i, "LG"],
+    [/\b3m\b/i, "3M"],
+    [/\bmirka\b/i, "Mirka"],
+    [/\bmakita\b/i, "Makita"],
+    [/\bfestool\b/i, "Festool"],
+    [/\bbosch\b/i, "Bosch"],
+    [/\bkreg\b/i, "Kreg"],
+    [/\bleviton\b/i, "Leviton"],
+    [/\bsouthwire\b/i, "Southwire"],
+    [/\bfeit\b/i, "Feit Electric"],
+    [/\bhunter\b/i, "Hunter"],
+    [/\bvelux\b/i, "VELUX"],
+  ];
+
+  for (const [pattern, name] of signatures) {
+    if (pattern.test(description)) return { name, sourceKey: "Part_Desc" };
+  }
+  return null;
+}
+
+/**
  * Resolves the best manufacturer/brand name to use for enrichment (Gemini
  * search grounding).
  *
@@ -79,6 +124,11 @@ export function resolveBrandForEnrichment(
   fields: Record<string, ExtractedField>
 ): { name: string; sourceKey: string } | null {
   const keys = Object.keys(fields);
+
+  // The description is more trustworthy than a source column explicitly
+  // saying "-- Unbranded --". Check it before falling back to manufacturer.
+  const descriptionBrand = resolveBrandFromDescription(fields);
+  if (descriptionBrand) return descriptionBrand;
 
   // ── Priority 1: exact "brand" key ─────────────────────────────────────────
   const exactBrandKey = keys.find((k) => k.toLowerCase() === "brand");
@@ -113,7 +163,7 @@ export function resolveBrandForEnrichment(
   for (const k of manufKeys) {
     const val = String(fields[k].value ?? "").trim();
     if (val && !isPlaceholderValue(val) && !looksLikeDistributor(val)) {
-      return { name: val, sourceKey: k };
+      return { name: val.replace(/\s*\([^)]*\)\s*$/, "").trim(), sourceKey: k };
     }
   }
 

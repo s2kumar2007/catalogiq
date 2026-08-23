@@ -330,6 +330,11 @@ export async function runFormatting(
   
   if (resolvedBrand?.name) {
     formatted.record.BRAND_NAME = resolvedBrand.name;
+    // Delivery brand columns must contain the resolved catalog brand, not the
+    // placeholder values that arrived in the source feed.
+    formatted.record.E1_Brand = resolvedBrand.name;
+    formatted.record.Unilog_Brand = resolvedBrand.name;
+    formatted.record.DIB_Brand = resolvedBrand.name;
   }
   
   if (resolvedManufacturer?.name) {
