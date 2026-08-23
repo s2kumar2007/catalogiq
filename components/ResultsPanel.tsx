@@ -3,27 +3,22 @@ import { labelStyle } from "./UploadArea";
 
 // TODO: replace this mock with the real response shape from
 // app/api/process-batch/route.ts once wired up.
-type ResultRow = {
+export type ResultRow = {
   part: string;
   brand: string;
   status: "enriched" | "flagged";
   conf: number | null;
 };
 
-const MOCK_ROWS: ResultRow[] = [
-  { part: "LFXS28968S", brand: "LG", status: "enriched", conf: 94 },
-  { part: "GDT650SYVFS", brand: "GE", status: "enriched", conf: 91 },
-  { part: "KDTM404KPS", brand: "KitchenAid", status: "enriched", conf: 88 },
-  { part: "PDSH4816AF", brand: "Unbranded", status: "flagged", conf: null },
-  { part: "WDTS7024RZ", brand: "Unbranded", status: "flagged", conf: null },
-];
-
 type Props = {
   mfr?: string;
-  rows?: ResultRow[];
+  rows: ResultRow[]; // no default — must come from the real API response
 };
 
-export default function ResultsPanel({ mfr, rows = MOCK_ROWS }: Props) {
+export default function ResultsPanel({ mfr, rows }: Props) {
+  if (!rows || rows.length === 0) {
+    return <p style={{ padding: 24, textAlign: "center", color: "#565D6B" }}>No results yet.</p>;
+  }
   const shown = mfr ? rows.filter((r) => r.brand.toLowerCase().includes(mfr.toLowerCase())) : rows;
   const enrichedCount = rows.filter((r) => r.status === "enriched").length;
   const flaggedCount = rows.filter((r) => r.status === "flagged").length;

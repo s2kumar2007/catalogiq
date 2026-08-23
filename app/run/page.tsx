@@ -1,26 +1,77 @@
 "use client";
 
 import { useState } from "react";
+import Papa from "papaparse";
 import UploadArea, { labelStyle } from "@/components/UploadArea";
-import ResultsPanel from "@/components/ResultsPanel";
+import ResultsPanel, { ResultRow } from "@/components/ResultsPanel";
+
+function mapToResultRows(products: any[]): ResultRow[] {
+  return products.map((p) => ({
+    part: p.mpn ?? p.delivery_record?.Mfg_Part_Num ?? "unknown",
+    brand: p.enrichment_result?.discoveredDomain
+      ? p.brand ?? "Unknown"
+      : (p.brand?.toLowerCase().includes("unbranded") ? "Unbranded" : p.brand ?? "Unbranded"),
+    status: p.enrichment_result?.officialDataFound ? "enriched" : "flagged",
+    conf: p.classification_result?.confidence ?? null,
+  }));
+}
 
 export default function Page() {
   const [file, setFile] = useState<File | null>(null);
   const [mfr, setMfr] = useState("");
   const [status, setStatus] = useState<"idle" | "running" | "done">("idle");
+  const [result, setResult] = useState<any>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const run = async () => {
     if (!file) return;
     setStatus("running");
+    setErrorMsg(null);
 
-    // TODO: replace with the real call, e.g.:
-    // const formData = new FormData();
-    // formData.append("file", file);
-    // formData.append("mfr", mfr);
-    // const res = await fetch("/api/process-batch", { method: "POST", body: formData });
-    // const data = await res.json();
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: async (parsed) => {
+        const rows = parsed.data as Record<string, string>[];
+        
+        // Filter by manufacturer if provided
+        let filtered = rows;
+        if (mfr.trim()) {
+          filtered = rows.filter((r) => 
+            (r.Part_Manuf || "").toLowerCase().includes(mfr.trim().toLowerCase())
+          );
+        }
 
-    setTimeout(() => setStatus("done"), 1600);
+        const products = filtered.map(r => ({
+          raw_text: `${r.Mfg_Part_Num || ""} ${r.Part_Manuf || ""} ${r.Part_Desc || ""}`.trim()
+        }));
+
+        try {
+          const res = await fetch("/api/process-batch", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ products }),
+          });
+
+          if (!res.ok) {
+            throw new Error(`Server returned ${res.status}`);
+          }
+
+          const data = await res.json();
+          setResult(data);
+          setStatus("done");
+        } catch (err) {
+          console.error("Pipeline run failed:", err);
+          setErrorMsg("Pipeline failed to run. Check console for details.");
+          setStatus("idle");
+        }
+      },
+      error: (err) => {
+        console.error("CSV parse error:", err);
+        setErrorMsg("Failed to parse CSV file.");
+        setStatus("idle");
+      }
+    });
   };
 
   return (
@@ -98,8 +149,14 @@ export default function Page() {
             {status === "running" ? "Running pipeline…" : "Run enrichment pipeline"}
           </button>
         </div>
+        
+        {errorMsg && (
+          <div style={{ marginTop: 24, padding: 16, background: "#3A1A1A", border: "1px solid #7A2E2E", borderRadius: 8, color: "#FCA5A5", fontSize: 14 }}>
+            {errorMsg}
+          </div>
+        )}
 
-        {status === "done" && <ResultsPanel mfr={mfr} />}
+        {status === "done" && <ResultsPanel mfr={mfr} rows={result ? mapToResultRows(result.products || []) : []} />}
       </div>
     </div>
   );
