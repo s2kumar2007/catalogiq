@@ -37,9 +37,17 @@ export default function Page() {
         // Filter by manufacturer if provided
         let filtered = rows;
         if (mfr.trim()) {
+          const needle = mfr.trim().toLowerCase();
           filtered = rows.filter((r) => 
-            (r.Part_Manuf || "").toLowerCase().includes(mfr.trim().toLowerCase())
+            (r.Part_Manuf || "").toLowerCase().includes(needle) ||
+            (r.Part_Desc || "").toLowerCase().includes(needle)
           );
+        }
+
+        if (filtered.length === 0) {
+          setErrorMsg(`No rows matched "${mfr}". Try a different filter or leave it blank to process all rows.`);
+          setStatus("idle");
+          return;
         }
 
         const products = filtered.map(r => ({
