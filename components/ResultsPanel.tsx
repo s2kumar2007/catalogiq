@@ -18,6 +18,39 @@ type Props = {
   rawProducts?: any[];
 };
 
+function buildExportTable(products: any[], displayRows: ResultRow[]) {
+  const columns =
+    products.find((p) => Array.isArray(p.delivery_columns) && p.delivery_columns.length > 0)
+      ?.delivery_columns ?? [];
+
+  const records = products.map((p, index) => {
+    if (p.delivery_record && Object.keys(p.delivery_record).length > 0) {
+      return p.delivery_record;
+    }
+
+    const display = displayRows[index];
+    const source = p.source_row ?? {};
+    const fallback: Record<string, string> = { ...source };
+    fallback.Mfg_Part_Num = fallback.Mfg_Part_Num || fallback.MANUFACTURER_PART_NUMBER || display?.part || "";
+    fallback.MANUFACTURER_PART_NUMBER = fallback.MANUFACTURER_PART_NUMBER || fallback.Mfg_Part_Num || "";
+    fallback.Part_Desc = fallback.Part_Desc || fallback.description || "";
+    fallback.BRAND_NAME = fallback.BRAND_NAME || display?.brand || "";
+    fallback.E1_Brand = fallback.E1_Brand || fallback.BRAND_NAME || "";
+    fallback.Unilog_Brand = fallback.Unilog_Brand || fallback.BRAND_NAME || "";
+    fallback.DIB_Brand = fallback.DIB_Brand || fallback.BRAND_NAME || "";
+    return fallback;
+  });
+
+  const fallbackColumns = Array.from(
+    new Set(records.flatMap((record) => Object.keys(record)))
+  );
+
+  return {
+    columns: columns.length > 0 ? columns : fallbackColumns,
+    records,
+  };
+}
+
 export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
   if (!rows || rows.length === 0) {
     return <p style={{ padding: 24, textAlign: "center", color: "#565D6B" }}>No results yet.</p>;
@@ -29,8 +62,7 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
 
   const handleDownloadCsv = () => {
     if (!rawProducts.length) return;
-    const deliveryRecords = rawProducts.map((p) => p.delivery_record).filter(Boolean);
-    const columns = rawProducts.find((p) => p.delivery_columns?.length > 0)?.delivery_columns || [];
+    const { records: deliveryRecords, columns } = buildExportTable(rawProducts, rows);
     const csv = Papa.unparse(deliveryRecords, { columns });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -43,8 +75,7 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
 
   const handleDownloadExcel = () => {
     if (!rawProducts.length) return;
-    const deliveryRecords = rawProducts.map((p) => p.delivery_record).filter(Boolean);
-    const columns = rawProducts.find((p) => p.delivery_columns?.length > 0)?.delivery_columns || [];
+    const { records: deliveryRecords, columns } = buildExportTable(rawProducts, rows);
     const ws = XLSX.utils.json_to_sheet(deliveryRecords, { header: columns });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");
