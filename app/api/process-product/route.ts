@@ -3,7 +3,7 @@
  * Main Orchestrator — CatalogIQ
  *
  * Single entry point for the full pipeline:
- *   1. Extract   → Gemini (lib/agents/extract.ts)
+ *   1. Extract   → Groq (lib/agents/extract.ts)
  *   2. Validate  → Groq   (lib/agents/validate.ts)  [skipped if schema_match = "none"]
  *
  * Accepts multipart/form-data (from the upload page) OR application/json.
@@ -106,7 +106,7 @@ async function parseRequest(req: NextRequest): Promise<{
       const mimeType = fileField.type;
 
       if (mimeType.startsWith("image/")) {
-        // Convert to base64 data URL for Gemini multimodal
+        // Convert to base64 data URL for Groq multimodal
         const arrayBuffer = await fileField.arrayBuffer();
         const base64 = Buffer.from(arrayBuffer).toString("base64");
         imageBase64 = `data:${mimeType};base64,${base64}`;
@@ -351,13 +351,11 @@ export async function POST(req: NextRequest) {
   const mpn = mpnResolved?.mpn;
 
   let canonicalManufacturer = finalBrand?.name ?? "";
-  let manufacturerMatched = false;
   if (finalBrand?.name) {
     const lookup = matchManufacturer(finalBrand.name);
     canonicalManufacturer = lookup.matched
       ? lookup.name
       : await canonicalizeName(finalBrand.name, "manufacturer");
-    manufacturerMatched = lookup.matched;
   }
 
   const manuf = canonicalManufacturer;

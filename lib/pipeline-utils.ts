@@ -106,10 +106,8 @@ function resolveBrandFromDescription(
 }
 
 /**
- * Resolves the best manufacturer/brand name to use for enrichment (Gemini
- * search grounding).
- *
- * Priority order (highest → lowest):
+ * Resolves the best manufacturer/brand name to use for enrichment (Tavily domain discovery + Groq spec parsing).
+ * Priority: order (highest → lowest):
  *  1. Any field whose key is exactly "brand" — this is what the extraction
  *     agent emits when it finds the brand token inside the description text,
  *     and it always has higher confidence than the labelled Manufacturer: line.

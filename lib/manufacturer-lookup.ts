@@ -40,9 +40,9 @@ function tokenSetRatio(s1: string, s2: string): number {
   if (set1.size === 0 || set2.size === 0) return 0;
   
   let intersection = 0;
-  for (const word of set1) {
+  set1.forEach(word => {
     if (set2.has(word)) intersection++;
-  }
+  });
   
   return intersection / Math.max(set1.size, set2.size);
 }

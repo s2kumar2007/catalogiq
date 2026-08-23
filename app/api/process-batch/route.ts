@@ -2,14 +2,15 @@
  * app/api/process-batch/route.ts
  * Batch Processing Orchestrator — CatalogIQ
  *
- * Full pipeline per item (mirrors process-product/route.ts):
- *   1. Classify   → Groq   (lib/agents/classify.ts)
- *   2. Extract    → Groq   (lib/agents/extract.ts)
- *   3. Validate   → Groq   (lib/agents/validate.ts)   [skipped if no known schema]
- *   4. Gap-Resolve → Groq  (lib/agents/gap-resolve.ts) [skipped if not static category]
- *   5. Enrich     → Gemini (lib/agents/enrich.ts)
- *   6. Normalize  → Groq   (lib/agents/normalize.ts)
- *   7. Format     → local  (lib/agents/format.ts)
+ * Pipeline Stages:
+ *   1. Classify   → Groq (lib/agents/classify.ts)
+ *   2. Extract    → Groq (lib/agents/extract.ts)
+ *   3. Validate   → Groq (lib/agents/validate.ts)
+ *   4. Gap-Resolve→ Rule-based (lib/pipeline-utils.ts)
+ *   5. Enrich     → Groq + Tavily (lib/agents/enrich.ts)
+ *   6. Normalize  → Groq (lib/agents/normalize.ts)
+ *   7. Format     → Rule-based / Assembly (lib/agents/format.ts)
+ *   8. Score      → Rule-based (in this file)
  *
  * Concurrency is set to 1 to avoid Groq TPM limits on the free tier.
  */
