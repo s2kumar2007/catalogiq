@@ -6,14 +6,25 @@ import UploadArea, { labelStyle } from "@/components/UploadArea";
 import ResultsPanel, { ResultRow } from "@/components/ResultsPanel";
 
 function mapToResultRows(products: any[]): ResultRow[] {
-  return products.map((p) => ({
-    part: p.mpn ?? p.delivery_record?.Mfg_Part_Num ?? "unknown",
-    brand: p.enrichment_result?.discoveredDomain
-      ? p.brand ?? "Unknown"
-      : (p.brand?.toLowerCase().includes("unbranded") ? "Unbranded" : p.brand ?? "Unbranded"),
-    status: p.enrichment_result?.officialDataFound ? "enriched" : "flagged",
-    conf: p.classification_result?.confidence ?? null,
-  }));
+  return products.map((p) => {
+    const normFields = p.normalization_result?.normalized_fields ?? {};
+    const mpn =
+      normFields.part_number?.value ??
+      p.delivery_record?.Mfg_Part_Num ??
+      "unknown";
+
+    const brandValue =
+      normFields.brand?.value ??
+      normFields.manufacturer?.value ??
+      "Unbranded";
+
+    return {
+      part: mpn,
+      brand: brandValue,
+      status: p.enrichment_result?.officialDataFound ? "enriched" : "flagged",
+      conf: p.classification_result?.confidence ?? null,
+    };
+  });
 }
 
 export default function Page() {
