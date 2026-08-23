@@ -62,6 +62,28 @@ function extractJson(text: string): string {
   return text;
 }
 
+function parseWithRepair<T>(text: string): T {
+  try {
+    return parseJsonResponse<T>(text);
+  } catch (err) {
+    let repaired = text.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+    // Simple basic brace closing if mismatched
+    const openBraces = (repaired.match(/\{/g) || []).length;
+    let closeBraces = (repaired.match(/\}/g) || []).length;
+    while (openBraces > closeBraces) {
+        repaired += '}';
+        closeBraces++;
+    }
+    const openBrackets = (repaired.match(/\[/g) || []).length;
+    let closeBrackets = (repaired.match(/\]/g) || []).length;
+    while (openBrackets > closeBrackets) {
+        repaired += ']';
+        closeBrackets++;
+    }
+    return JSON.parse(repaired) as T;
+  }
+}
+
 export async function runClassification(
   input: ClassificationInput
 ): Promise<ClassificationResult> {
@@ -74,7 +96,7 @@ export async function runClassification(
 
   const attempt = async (): Promise<ClassificationResult> => {
     const responseText = await callGroq(SYSTEM_PROMPT, userPrompt, apiKey, undefined, 1400);
-    const parsed = parseJsonResponse<ClassificationResult>(extractJson(responseText));
+    const parsed = parseWithRepair<ClassificationResult>(extractJson(responseText));
 
     // Validate shape
     if (!parsed.classpath || !Array.isArray(parsed.schema_fields)) {
@@ -82,6 +104,23 @@ export async function runClassification(
     }
 
     return parsed;
+  };
+
+  const thirdAttempt = async (): Promise<ClassificationResult> => {
+    const simplePrompt = `Classify this product into a classpath only. Return ONLY:
+{"classpath": "string", "confidence": 0-100}`;
+    const responseText = await callGroq(simplePrompt, userPrompt, apiKey, undefined, 512);
+    const parsed = parseWithRepair<{classpath: string, confidence: number}>(extractJson(responseText));
+
+    if (!parsed.classpath) {
+      throw new Error("Invalid minimal classification response shape");
+    }
+
+    return {
+      classpath: parsed.classpath,
+      confidence: parsed.confidence || 50,
+      schema_fields: []
+    };
   };
 
   try {
@@ -95,6 +134,13 @@ export async function runClassification(
     } catch (secondError) {
       console.error("[classify] FAILED for input:", input.rawText.slice(0, 100));
       console.error("[classify] Second attempt also failed:", secondError);
+      
+      console.log("[classify] Falling back to simplified third attempt...");
+      try {
+        return await thirdAttempt();
+      } catch (thirdError) {
+        console.error("[classify] Third attempt also failed:", thirdError);
+      }
     }
     return {
       classpath: "Unknown>Uncategorized",

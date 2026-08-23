@@ -20,7 +20,6 @@
  */
 const PRIMARY_MODEL  = "openai/gpt-oss-120b";
 
-
 /**
  * Fallback: LLaMA 3.1 8B Instant — always available, extremely fast.
  * Quality is lower but sufficient for validation/reconciliation JSON output.
