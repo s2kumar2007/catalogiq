@@ -25,6 +25,7 @@ import { runFormatting }              from "@/lib/agents/format";
 import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "@/lib/pipeline-utils";
 import { discoverBrandFromMPN }               from "@/lib/agents/discover-brand";
 import type { BrandDiscoveryResult }          from "@/lib/agents/discover-brand";
+import { buildUnilogDeliveryRecord, loadDeliverySchema } from "@/lib/unilog-format";
 import type { ExtractedField }        from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,56 @@ interface BatchProductInput {
   raw_text: string;
   /** Original CSV fields are retained as a reliable fallback for identifiers. */
   source_row?: Record<string, string>;
+}
+
+function buildFallbackDelivery(
+  sourceRow: Record<string, string> | undefined,
+  fields: Record<string, ExtractedField>,
+  resolvedBrand?: { name: string; sourceKey: string } | null,
+  resolvedManufacturer?: string
+) {
+  const schema = loadDeliverySchema();
+  const source = sourceRow ?? {};
+  const getField = (key: string) => String(fields[key]?.value ?? source[key] ?? "").trim();
+  const inputRow = {
+    ...source,
+    Mfg_Part_Num:
+      getField("Mfg_Part_Num") ||
+      getField("MANUFACTURER_PART_NUMBER") ||
+      getField("part_number") ||
+      getField("mpn"),
+    Part_Desc:
+      getField("Part_Desc") ||
+      getField("description") ||
+      getField("raw_description") ||
+      getField("product_description"),
+    E1_Brand: resolvedBrand?.name || getField("E1_Brand") || getField("brand"),
+    Unilog_Brand: resolvedBrand?.name || getField("Unilog_Brand"),
+    DIB_Brand: resolvedBrand?.name || getField("DIB_Brand"),
+    Part_Manuf: getField("Part_Manuf") || getField("manufacturer") || getField("MANUFACTURER_NAME"),
+  };
+
+  const formatted = buildUnilogDeliveryRecord(inputRow, {
+    columns: schema.columns,
+    schemaMatch: "none",
+  });
+
+  if (resolvedBrand?.name) {
+    formatted.record.BRAND_NAME = resolvedBrand.name;
+    formatted.record.E1_Brand = resolvedBrand.name;
+    formatted.record.Unilog_Brand = resolvedBrand.name;
+    formatted.record.DIB_Brand = resolvedBrand.name;
+    formatted.record.TRADE_NAME = resolvedBrand.name;
+  }
+
+  if (resolvedManufacturer) {
+    formatted.record.MANUFACTURER_NAME = resolvedManufacturer;
+  }
+
+  return {
+    delivery_record: formatted.record,
+    delivery_columns: schema.columns,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +293,10 @@ async function processSingleProduct(
     }
   }
 
+  const fallbackDelivery = !formattingResult
+    ? buildFallbackDelivery(sourceRow, finalExtractedFields, finalBrand, finalManufacturerName)
+    : null;
+
   return {
     schema_match:          resolvedCategory,
     extracted_fields:      finalExtractedFields,
@@ -252,8 +307,8 @@ async function processSingleProduct(
     classification_result: classificationResult,
     normalization_result:  normalizationResult,
     delivery_formats:      formattingResult?.delivery_formats ?? null,
-    delivery_record:       formattingResult?.delivery_record   ?? null,
-    delivery_columns:      formattingResult?.delivery_columns  ?? [],
+    delivery_record:       formattingResult?.delivery_record   ?? fallbackDelivery?.delivery_record ?? null,
+    delivery_columns:      formattingResult?.delivery_columns  ?? fallbackDelivery?.delivery_columns ?? [],
     is_unverified:         isUnverified,
     pipeline_warnings:     pipelineWarnings,
     brand_discovery:       brandDiscoveryResult ?? null,
@@ -341,6 +396,7 @@ export async function POST(req: NextRequest) {
         ...pipelineOut,
       });
     } catch (err) {
+      const fallbackDelivery = buildFallbackDelivery(item.source_row, {});
       results.push({
         index,
         input: item.raw_text,
@@ -356,7 +412,8 @@ export async function POST(req: NextRequest) {
         classification_result: null,
         normalization_result: null,
         delivery_formats: null,
-        delivery_record: null,
+        delivery_record: fallbackDelivery.delivery_record,
+        delivery_columns: fallbackDelivery.delivery_columns,
         is_unverified: true,
         pipeline_warnings: [String(err)],
       });
