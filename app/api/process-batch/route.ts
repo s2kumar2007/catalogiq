@@ -83,10 +83,10 @@ function buildFallbackDelivery(
       getField("description") ||
       getField("raw_description") ||
       getField("product_description"),
-    E1_Brand: resolvedBrand?.name || getField("E1_Brand") || getField("brand"),
-    Unilog_Brand: resolvedBrand?.name || getField("Unilog_Brand"),
-    DIB_Brand: resolvedBrand?.name || getField("DIB_Brand"),
-    Part_Manuf: getField("Part_Manuf") || getField("manufacturer") || getField("MANUFACTURER_NAME"),
+    E1_Brand: resolvedBrand?.name || "",
+    Unilog_Brand: resolvedBrand?.name || "",
+    DIB_Brand: resolvedBrand?.name || "",
+    Part_Manuf: resolvedManufacturer || "",
   };
 
   const formatted = buildUnilogDeliveryRecord(inputRow, {
@@ -104,7 +104,14 @@ function buildFallbackDelivery(
 
   if (resolvedManufacturer) {
     formatted.record.MANUFACTURER_NAME = resolvedManufacturer;
+  } else {
+    formatted.record.MANUFACTURER_NAME = "";
   }
+
+  formatted.record.Classpath = "";
+  formatted.record.Dept = "";
+  formatted.record.Class = "";
+  formatted.record.Fine = "";
 
   return {
     delivery_record: formatted.record,
@@ -283,6 +290,9 @@ async function processSingleProduct(
           : null,
         sourceUrl:            enrichmentResult?.sourceUrl,
         referenceUrls:        enrichmentResult?.referenceUrls,
+        productImageUrl:      enrichmentResult?.productImageUrl,
+        alternateImageUrls:   enrichmentResult?.alternateImageUrls,
+        specSheetUrl:         enrichmentResult?.specSheetUrl,
       });
       console.log(`[format-debug] MPN=${mpn} formatting SUCCEEDED - delivery_columns count: ${formattingResult?.delivery_columns?.length ?? 0}, delivery_record keys: ${Object.keys(formattingResult?.delivery_record ?? {}).length}`);
     } catch (err) {

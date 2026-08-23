@@ -30,6 +30,9 @@ export interface EnrichmentResult {
   sourceUrl?: string;
   discoveredDomain?: string;
   extractedAttributes?: Record<string, string>;
+  productImageUrl?: string | null;
+  alternateImageUrls?: string[];
+  specSheetUrl?: string | null;
   /** Additional candidate URLs from search results that weren't chosen as the
    *  primary official source, but are still real relevant pages (retailer
    *  listings, spec sheets, etc.) suitable for Ref URL 2-5 slots. */
@@ -40,6 +43,55 @@ export interface EnrichmentResult {
 // nothing found). Avoids re-discovering the same brand's domain on every
 // row within a single pipeline run.
 const domainDiscoveryCache = new Map<string, string | null>();
+
+interface TavilySearchOptions {
+  includeImages?: boolean;
+  includeDomains?: string[];
+  maxResults?: number;
+  searchDepth?: "basic" | "advanced";
+}
+
+interface TavilyResult {
+  url?: string;
+  title?: string;
+  content?: string;
+}
+
+interface TavilyImageResult {
+  url?: string;
+}
+
+interface TavilySearchResponse {
+  results?: TavilyResult[];
+  images?: Array<string | TavilyImageResult>;
+}
+
+async function searchTavily(
+  query: string,
+  options: TavilySearchOptions = {}
+): Promise<TavilySearchResponse> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) throw new Error("TAVILY_API_KEY not set");
+
+  const response = await fetch(TAVILY_API_BASE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query,
+      search_depth: options.searchDepth ?? "basic",
+      include_domains: options.includeDomains,
+      include_images: options.includeImages,
+      max_results: options.maxResults ?? 5,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Tavily search failed with HTTP ${response.status}: ${await response.text()}`);
+  }
+
+  return response.json();
+}
 
 
 /**
@@ -58,33 +110,18 @@ async function discoverManufacturerDomain(
     return { domain: domainDiscoveryCache.get(manufacturerName)!, candidateUrls: [] };
   }
 
-  const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) throw new Error("TAVILY_API_KEY not set");
-
   try {
-    const response = await fetch(TAVILY_API_BASE, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query: `${manufacturerName} official website`,
-        search_depth: "basic",
-        max_results: 5,
-      }),
+    const json = await searchTavily(`${manufacturerName} official website`, {
+      searchDepth: "basic",
+      maxResults: 5,
     });
-
-    if (!response.ok) {
-      domainDiscoveryCache.set(manufacturerName, null);
-      return { domain: null, candidateUrls: [] };
-    }
-
-    const json = await response.json();
-    const results: any[] = json?.results ?? [];
+    const results = json.results ?? [];
 
     // Track all non-blocked candidate URLs as potential reference material
     const candidateUrls: string[] = [];
 
     for (const r of results) {
+      if (!r.url) continue;
       let hostname: string;
       try {
         hostname = new URL(r.url).hostname.replace(/^www\./, "");
@@ -146,30 +183,15 @@ async function searchProductOnDomain(
   domain: string,
   partNumber: string
 ): Promise<{ url: string | null; rawContent: string | null; extraUrls: string[] }> {
-  const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) throw new Error("TAVILY_API_KEY not set");
-
   const query = `${partNumber} product specifications site:${domain}`;
 
   try {
-    const response = await fetch(TAVILY_API_BASE, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: apiKey,
-        query,
-        search_depth: "advanced",
-        include_domains: [domain],
-        max_results: 3,
-      }),
+    const json = await searchTavily(query, {
+      searchDepth: "advanced",
+      includeDomains: [domain],
+      maxResults: 3,
     });
-
-    if (!response.ok) {
-      throw new Error(`Tavily search failed with HTTP ${response.status}: ${await response.text()}`);
-    }
-
-    const json = await response.json();
-    const results: any[] = json?.results ?? [];
+    const results = json.results ?? [];
 
     if (results.length === 0) {
       return { url: null, rawContent: null, extraUrls: [] };
@@ -177,11 +199,47 @@ async function searchProductOnDomain(
 
     const best = results[0];
     // Collect remaining results as supplementary reference URLs
-    const extraUrls = results.slice(1).map((r: any) => r.url).filter(Boolean);
+    const extraUrls = results.slice(1).map((r) => r.url).filter(Boolean) as string[];
     return { url: best?.url ?? null, rawContent: best?.content ?? null, extraUrls };
   } catch (err) {
     console.error("[enrich] Product search error:", err);
     return { url: null, rawContent: null, extraUrls: [] };
+  }
+}
+
+async function discoverDigitalAssets(
+  manufacturerDomain: string,
+  mpn: string
+): Promise<{ productImageUrl: string | null; alternateImageUrls: string[]; specSheetUrl: string | null }> {
+  try {
+    const imageQuery = `"${mpn}" site:${manufacturerDomain}`;
+    const imageResults = await searchTavily(imageQuery, {
+      includeDomains: [manufacturerDomain],
+      includeImages: true,
+      maxResults: 5,
+    });
+    const imageUrls = Array.from(new Set(
+      imageResults.images
+        ?.map((image) => (typeof image === "string" ? image : image.url))
+        .filter((url): url is string => Boolean(url && validateDomain(url, manufacturerDomain))) ?? []
+    ));
+    const productImageUrl = imageUrls[0] ?? null;
+    const alternateImageUrls = imageUrls.slice(1, 5);
+
+    const specQuery = `"${mpn}" specification sheet OR datasheet filetype:pdf site:${manufacturerDomain}`;
+    const specResults = await searchTavily(specQuery, {
+      includeDomains: [manufacturerDomain],
+      maxResults: 5,
+    });
+    const specSheetUrl =
+      specResults.results
+        ?.map((result) => result.url)
+        .find((url): url is string => Boolean(url && /\.pdf(?:$|[?#])/i.test(url))) ?? null;
+
+    return { productImageUrl, alternateImageUrls, specSheetUrl };
+  } catch (err) {
+    console.error(`[enrich] digital asset discovery failed for ${mpn}:`, err);
+    return { productImageUrl: null, alternateImageUrls: [], specSheetUrl: null };
   }
 }
 
@@ -275,14 +333,18 @@ export async function runEnrichment(input: EnrichmentInput): Promise<EnrichmentR
   // Build reference URL list: remaining on-domain results + discovery candidates,
   // deduplicated and excluding the primary sourceUrl. Up to 4 total.
   const allCandidates = [...productExtraUrls, ...discoveryCandidateUrls]
-    .filter((u) => u && u !== candidateUrl);
-  const referenceUrls = [...new Set(allCandidates)].slice(0, 4);
+    .filter((u): u is string => Boolean(u && u !== candidateUrl));
+  const referenceUrls = Array.from(new Set(allCandidates)).slice(0, 4);
+  const digitalAssets = await discoverDigitalAssets(discoveredDomain, partNumber);
 
   const result: EnrichmentResult = {
     officialDataFound: true,
     status: `success - official domain discovered and verified (${discoveredDomain})`,
     sourceUrl: candidateUrl,
     discoveredDomain,
+    productImageUrl: digitalAssets.productImageUrl,
+    alternateImageUrls: digitalAssets.alternateImageUrls,
+    specSheetUrl: digitalAssets.specSheetUrl,
     referenceUrls: referenceUrls.length > 0 ? referenceUrls : undefined,
   };
 
