@@ -259,15 +259,26 @@ async function main() {
       const normResult = await runNormalization(extractResult.extracted_fields);
 
       // ── Stage 5: Format (dynamic attributes + official source data) ──────
-      const fmtResult = await runFormatting({
-        normalizedFields: normResult.normalized_fields,
-        classificationResult: classResult,
-        officialSourceData: enrichmentResult.officialDataFound
-          ? enrichmentResult.extractedAttributes
-          : undefined,
-        resolvedBrand: finalBrand,
-        resolvedManufacturer: finalBrand,
-      });
+      let fmtResult: any = {
+        delivery_record: {},
+        trace: {},
+        delivery_formats: { attributes: [] },
+        delivery_columns: []
+      };
+      try {
+        fmtResult = await runFormatting({
+          normalizedFields: normResult.normalized_fields,
+          classificationResult: classResult,
+          officialSourceData: enrichmentResult.officialDataFound
+            ? enrichmentResult.extractedAttributes
+            : undefined,
+          resolvedBrand: finalBrand,
+          resolvedManufacturer: finalBrand,
+        });
+        console.log(`[format-debug] MPN=${mpn} formatting SUCCEEDED - delivery_columns count: ${fmtResult?.delivery_columns?.length ?? 0}, delivery_record keys: ${Object.keys(fmtResult?.delivery_record ?? {}).length}`);
+      } catch (err) {
+        console.error(`[format-debug] MPN=${mpn} formatting FAILED:`, err);
+      }
 
       // Overlay the original input row fields for pass-through columns
       const deliveryRecord = {

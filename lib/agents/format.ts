@@ -125,7 +125,7 @@ function buildExtraAttributes(
   const SKIP_IN_ATTRS = new Set([
     "part_manuf", "manufacturer_name", "part_desc", "mfg_part_num",
     "manufacturer_part_number", "raw_description", "product_description",
-    "e1_brand", "unilog_brand", "dib_brand",
+    "e1_brand", "unilog_brand", "dib_brand", "warranty", "standard/approvals",
     // These appear in dedicated top-level columns, not attribute slots
   ]);
   for (const [key, field] of Object.entries(normalizedFields)) {

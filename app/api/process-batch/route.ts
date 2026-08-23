@@ -212,7 +212,9 @@ async function processSingleProduct(
         sourceUrl:            enrichmentResult?.sourceUrl,
         referenceUrls:        enrichmentResult?.referenceUrls,
       });
+      console.log(`[format-debug] MPN=${mpn} formatting SUCCEEDED - delivery_columns count: ${formattingResult?.delivery_columns?.length ?? 0}, delivery_record keys: ${Object.keys(formattingResult?.delivery_record ?? {}).length}`);
     } catch (err) {
+      console.error(`[format-debug] MPN=${mpn} formatting FAILED:`, err);
       pipelineWarnings.push(
         `Formatting failed: ${err instanceof Error ? err.message : String(err)}`
       );

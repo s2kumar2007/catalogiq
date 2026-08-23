@@ -29,7 +29,7 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
   const handleDownloadCsv = () => {
     if (!rawProducts.length) return;
     const deliveryRecords = rawProducts.map((p) => p.delivery_record).filter(Boolean);
-    const columns = rawProducts[0]?.delivery_columns || [];
+    const columns = rawProducts.find((p) => p.delivery_columns?.length > 0)?.delivery_columns || [];
     const csv = Papa.unparse(deliveryRecords, { columns });
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
@@ -43,7 +43,7 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
   const handleDownloadExcel = () => {
     if (!rawProducts.length) return;
     const deliveryRecords = rawProducts.map((p) => p.delivery_record).filter(Boolean);
-    const columns = rawProducts[0]?.delivery_columns || [];
+    const columns = rawProducts.find((p) => p.delivery_columns?.length > 0)?.delivery_columns || [];
     const ws = XLSX.utils.json_to_sheet(deliveryRecords, { header: columns });
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Results");

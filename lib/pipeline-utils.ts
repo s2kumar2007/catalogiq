@@ -39,6 +39,27 @@ function looksLikeDistributor(name: string): boolean {
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Placeholder signal detection
+// ---------------------------------------------------------------------------
+// These indicate a field was populated with a generic "blank" value instead
+// of a real product identifier or brand name.
+const PLACEHOLDER_VALUES = new Set([
+  "unbranded",
+  "-- unbranded --",
+  "-- no unilog brand --",
+  "-- no dib brand --",
+  "no brand",
+  "n/a",
+  "none",
+  "unknown",
+]);
+
+function isPlaceholderValue(value: string): boolean {
+  const normalized = value.toLowerCase().trim();
+  return PLACEHOLDER_VALUES.has(normalized);
+}
+
 /**
  * Resolves the best manufacturer/brand name to use for enrichment (Gemini
  * search grounding).
@@ -63,7 +84,7 @@ export function resolveBrandForEnrichment(
   const exactBrandKey = keys.find((k) => k.toLowerCase() === "brand");
   if (exactBrandKey) {
     const val = String(fields[exactBrandKey].value ?? "").trim();
-    if (val) return { name: val, sourceKey: exactBrandKey };
+    if (val && !isPlaceholderValue(val)) return { name: val, sourceKey: exactBrandKey };
   }
 
   // ── Priority 2: any brand-ish key with confidence ≥ 50 ───────────────────
@@ -79,7 +100,7 @@ export function resolveBrandForEnrichment(
   for (const k of brandCandidates) {
     const field = fields[k];
     const val = String(field.value ?? "").trim();
-    if (val && field.confidence >= 50) return { name: val, sourceKey: k };
+    if (val && !isPlaceholderValue(val) && field.confidence >= 50) return { name: val, sourceKey: k };
   }
 
   // ── Priority 3: manufacturer key — but only if it's not a distributor ─────
@@ -91,7 +112,7 @@ export function resolveBrandForEnrichment(
   );
   for (const k of manufKeys) {
     const val = String(fields[k].value ?? "").trim();
-    if (val && !looksLikeDistributor(val)) {
+    if (val && !isPlaceholderValue(val) && !looksLikeDistributor(val)) {
       return { name: val, sourceKey: k };
     }
   }
@@ -112,7 +133,7 @@ export function resolveMpnForEnrichment(
   for (const k of EXACT) {
     if (keys.includes(k)) {
       const val = String(fields[k].value ?? "").trim();
-      if (val && val.toLowerCase() !== "unknown") return { mpn: val, sourceKey: k };
+      if (val && !isPlaceholderValue(val)) return { mpn: val, sourceKey: k };
     }
   }
 
@@ -122,7 +143,7 @@ export function resolveMpnForEnrichment(
   );
   if (heuristic) {
     const val = String(fields[heuristic].value ?? "").trim();
-    if (val && val.toLowerCase() !== "unknown") return { mpn: val, sourceKey: heuristic };
+    if (val && !isPlaceholderValue(val)) return { mpn: val, sourceKey: heuristic };
   }
 
   return null;

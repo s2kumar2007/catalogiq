@@ -194,7 +194,11 @@ async function parseSpecsFromContent(
   rawContent: string,
   partNumber: string
 ): Promise<Record<string, string>> {
-  const systemPrompt = `You extract product specification key-value pairs from raw webpage text. Return ONLY valid JSON: a flat object mapping attribute names to their values (e.g. {"Voltage Rating": "120 V", "Sound Level": "47 dBA"}). If no specs are found, return {}.`;
+  const systemPrompt = `You extract product specification key-value pairs from raw webpage text. Return ONLY valid JSON: a flat object mapping attribute names to their values (e.g. {"Voltage Rating": "120 V", "Sound Level": "47 dBA"}). If no specs are found, return {}.
+
+In addition to technical specifications, also extract these if genuinely present on the page:
+- Warranty: the manufacturer's stated warranty terms (e.g. '1 Year Manufacturer, 1 Year Labor and Parts'). Only include if explicitly stated - do not infer a standard/typical warranty period if the page doesn't state one.
+- Standard/Approvals: any listed certifications, standards compliance, or regulatory approvals (e.g. 'UL Listed', 'ENERGY STAR Certified', 'NSF Certified', 'ASSE 1006'). If multiple are listed, return them as a single pipe-separated string matching this format: 'CERT1|CERT2|CERT3'. Only include certifications actually visible on the page - do not assume standard certifications for a product category.`;
   const userPrompt = `Extract product specifications for part number "${partNumber}" from this webpage text:\n\n${rawContent.slice(0, 4000)}`;
 
   try {
