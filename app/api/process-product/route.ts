@@ -388,6 +388,9 @@ export async function POST(req: NextRequest) {
           : null,
         sourceUrl: enrichmentResult?.sourceUrl,
         referenceUrls: enrichmentResult?.referenceUrls,
+        productImageUrl: enrichmentResult?.productImageUrl,
+        alternateImageUrls: enrichmentResult?.alternateImageUrls,
+        specSheetUrl: enrichmentResult?.specSheetUrl,
       });
     } catch (err) {
       pipelineWarnings.push(`Formatting failed: ${err instanceof Error ? err.message : String(err)}`);

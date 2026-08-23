@@ -31,36 +31,25 @@ export interface SchemaField {
 
 const SYSTEM_PROMPT = `You are a product taxonomy and schema expert for an industrial/commercial product catalog.
 
-Your job is two-fold:
-1. Classify the product into the most specific classpath from the Unilog taxonomy.
-2. Generate the exact list of attribute fields that should be extracted for that classpath.
+Your job:
+1. Classify the product into the most specific plausible classpath, using the format "Department>Category>Subcategory" (2-3 levels).
+2. Generate a realistic list of attribute fields that a real spec sheet for this EXACT type of product would include - reason from your knowledge of the product category, not from memorized examples. Do not use a fixed field count; include as many genuine fields as the product type justifies, up to the 50 delivery slots.
 
-CLASSPATH RULES:
-- For kitchen dishwashers: "Appliances & Consumer Electronics>Kitchen Appliances>Built-In Dishwashers"
-- For threaded fasteners (bolts, screws, nuts, washers): "Hardware>Fasteners"  
-- For electrical connectors/terminals/plugs: "Electrical>Wiring>Connectors & Terminals"
-- For other products: use the most accurate path you can determine
-- If truly unknown: "Unknown>Uncategorized"
+CLASSPATH GUIDANCE:
+- Be as specific as the input text supports. If the input only says "Load Center" or "Square Drive Bit", classify at whatever specificity you can confidently determine (e.g. "Electrical>Circuit Protection>Load Centers", "Hardware>Hand Tool Accessories>Screwdriver Bits") - do not default to generic categories when a more specific one is clearly implied by the text.
+- Only return "Unknown>Uncategorized" if the input is genuinely too vague to classify AT ALL (e.g. just a part number with no descriptive text) - not simply because the category is unfamiliar to you. You have broad general knowledge of industrial/commercial products - use it.
 
-SCHEMA FIELD RULES:
-- Use the ATTRIBUTE_LABEL values seen in the Unilog Expected Output format as your field labels
-- For Built-In Dishwashers, the known attribute labels are:
-  Series, Model, Number of Wash Cycles, Voltage Rating, Amperage Rating,
-  Mounting Type, Plug Type, Size, Depth With Door Open, Minimum Height,
-  Maximum Height, Sound Level, Material, Color, Additional Information
-- For Fasteners: Thread Size, Length, Material, Drive Type, Finish, Grade/Class
-- For Connectors: Number of Positions, Contact Gender, Current Rating, Voltage Rating, Mounting Style
-- For any other category, infer the most likely attribute fields from the product text
-- key must be snake_case, label must match the ATTRIBUTE_LABEL exactly as it would appear in the output
+SCHEMA FIELD GUIDANCE:
+- Generate fields a real spec sheet for THIS SPECIFIC product type would have - e.g. a load center needs fields like Amperage Rating, Number of Circuits, Phase, Voltage Rating, Enclosure Type; a screwdriver bit needs fields like Drive Type, Bit Length, Tip Size, Material, Shank Type.
+- key must be snake_case, label must be a clean human-readable field name.
+- Always return AT LEAST 5 schema_fields for any product with real descriptive text - a near-empty schema_fields array is a sign you should reason harder about the category, not give up.
 
 Return ONLY valid JSON with this exact shape:
 {
   "classpath": "string",
   "confidence": 0-100,
   "schema_fields": [
-    { "key": "series", "label": "Series", "type": "string", "required": false },
-    { "key": "number_of_wash_cycles", "label": "Number of Wash Cycles", "type": "number", "required": false },
-    ...
+    { "key": "string", "label": "string", "type": "string"|"number"|"enum"|"array", "unit": "string (optional)", "required": boolean }
   ]
 }`;
 
@@ -83,7 +72,7 @@ export async function runClassification(
 
   ${input.rawText}`;
 
-  try {
+  const attempt = async (): Promise<ClassificationResult> => {
     const responseText = await callGroq(SYSTEM_PROMPT, userPrompt, apiKey, undefined, 1400);
     const parsed = parseJsonResponse<ClassificationResult>(extractJson(responseText));
 
@@ -93,8 +82,20 @@ export async function runClassification(
     }
 
     return parsed;
-  } catch (error) {
-    console.error("[classify] Error:", error);
+  };
+
+  try {
+    return await attempt();
+  } catch (firstError) {
+    console.error("[classify] FAILED for input:", input.rawText.slice(0, 100));
+    console.error("[classify] First attempt failed:", firstError);
+    await new Promise((r) => setTimeout(r, 2000));
+    try {
+      return await attempt();
+    } catch (secondError) {
+      console.error("[classify] FAILED for input:", input.rawText.slice(0, 100));
+      console.error("[classify] Second attempt also failed:", secondError);
+    }
     return {
       classpath: "Unknown>Uncategorized",
       confidence: 0,

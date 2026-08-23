@@ -274,6 +274,11 @@ async function main() {
             : undefined,
           resolvedBrand: finalBrand,
           resolvedManufacturer: finalBrand,
+          sourceUrl: enrichmentResult.sourceUrl,
+          referenceUrls: enrichmentResult.referenceUrls,
+          productImageUrl: enrichmentResult.productImageUrl,
+          alternateImageUrls: enrichmentResult.alternateImageUrls,
+          specSheetUrl: enrichmentResult.specSheetUrl,
         });
         console.log(`[format-debug] MPN=${mpn} formatting SUCCEEDED - delivery_columns count: ${fmtResult?.delivery_columns?.length ?? 0}, delivery_record keys: ${Object.keys(fmtResult?.delivery_record ?? {}).length}`);
       } catch (err) {
@@ -285,9 +290,6 @@ async function main() {
         ...fmtResult.delivery_record,
         Mfg_Part_Num: row["Mfg_Part_Num"] ?? "",
         Part_Desc:    row["Part_Desc"]    ?? "",
-        E1_Brand:     row["E1_Brand"]     ?? "",
-        Unilog_Brand: row["Unilog_Brand"] ?? "",
-        DIB_Brand:    row["DIB_Brand"]    ?? "",
         Part_Manuf:   row["Part_Manuf"]   ?? "",
       };
 

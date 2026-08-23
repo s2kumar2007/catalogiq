@@ -46,6 +46,12 @@ export interface FormattingInput {
   sourceUrl?: string;
   /** Additional candidate URLs from enrichment to populate Ref URL 2-5 */
   referenceUrls?: string[];
+  /** Real manufacturer-hosted product image URL discovered during enrichment */
+  productImageUrl?: string | null;
+  /** Additional real manufacturer-hosted product image URLs discovered during enrichment */
+  alternateImageUrls?: string[];
+  /** Real manufacturer-hosted specification/datasheet PDF URL discovered during enrichment */
+  specSheetUrl?: string | null;
 }
 
 export interface FormattingResult {
@@ -53,6 +59,35 @@ export interface FormattingResult {
   delivery_record: UnilogDeliveryRecord;
   delivery_columns: string[];
   trace: Record<string, unknown>;
+}
+
+type AttributeSource = "extraction" | "normalization" | "enrichment";
+
+interface AttributeCandidate {
+  label: string;
+  value: string;
+  uom: string;
+  confidence: number;
+  source: AttributeSource;
+}
+
+export function rankAttributesForSlots<T extends {
+  label: string;
+  value: string;
+  confidence: number;
+  source: AttributeSource;
+}>(attrs: T[]): T[] {
+  const sourceWeight: Record<AttributeSource, number> = {
+    extraction: 3,
+    normalization: 2,
+    enrichment: 1,
+  };
+
+  return [...attrs].sort((a, b) => {
+    const sourceDiff = sourceWeight[b.source] - sourceWeight[a.source];
+    if (sourceDiff !== 0) return sourceDiff;
+    return b.confidence - a.confidence;
+  });
 }
 
 function mergeEnrichmentSpecsIntoFields(
@@ -71,10 +106,36 @@ function mergeEnrichmentSpecsIntoFields(
     merged[specKey] = {
       value: specValue,
       confidence: 70, // enrichment-sourced values get moderate confidence
-      source: "enrichment",
-    } as ExtractedField;
+      source_location: "manufacturer_site_enrichment",
+      extraction_method: "explicit",
+    };
   }
   return merged;
+}
+
+function attributeSourceForField(field: ExtractedField): AttributeSource {
+  return field.source_location === "manufacturer_site_enrichment"
+    ? "enrichment"
+    : "normalization";
+}
+
+function isResolvedAttributeValue(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return Boolean(normalized) && ![
+    "n/a",
+    "na",
+    "not applicable",
+    "none",
+    "null",
+    "unknown",
+    "tbd",
+    "-",
+    "--",
+    "unbranded",
+    "-- unbranded --",
+    "-- no unilog brand --",
+    "-- no dib brand --",
+  ].includes(normalized);
 }
 
 /**
@@ -88,9 +149,9 @@ function mergeEnrichmentSpecsIntoFields(
 function buildExtraAttributes(
   schemaFields: SchemaField[],
   normalizedFields: Record<string, ExtractedField>
-): { label: string; value: string; uom: string }[] {
+): AttributeCandidate[] {
   const used = new Set<string>();
-  const attrs: { label: string; value: string; uom: string }[] = [];
+  const attrs: AttributeCandidate[] = [];
 
   // Normalize a string for matching: lowercase + collapse whitespace
   const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
@@ -111,8 +172,14 @@ function buildExtraAttributes(
     if (match) {
       const [rawKey, field] = match;
       const value = String(field.value ?? "").trim();
-      if (value) {
-        attrs.push({ label: sf.label, value, uom: sf.unit ?? "" });
+      if (isResolvedAttributeValue(value)) {
+        attrs.push({
+          label: sf.label,
+          value,
+          uom: sf.unit ?? "",
+          confidence: field.confidence,
+          source: attributeSourceForField(field),
+        });
         used.add(rawKey);
       }
     }
@@ -125,6 +192,7 @@ function buildExtraAttributes(
   const SKIP_IN_ATTRS = new Set([
     "part_manuf", "manufacturer_name", "part_desc", "mfg_part_num",
     "manufacturer_part_number", "raw_description", "product_description",
+    "part_number", "description", "brand", "manufacturer",
     "e1_brand", "unilog_brand", "dib_brand", "warranty", "standard/approvals",
     // These appear in dedicated top-level columns, not attribute slots
   ]);
@@ -132,13 +200,19 @@ function buildExtraAttributes(
     if (used.has(key)) continue;
     if (SKIP_IN_ATTRS.has(key.toLowerCase())) continue;
     const value = String(field.value ?? "").trim();
-    if (!value) continue;
+    if (!isResolvedAttributeValue(value)) continue;
     // Convert snake_case key to Title Case label for display
     const label = key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-    attrs.push({ label, value, uom: "" });
+    attrs.push({
+      label,
+      value,
+      uom: "",
+      confidence: field.confidence,
+      source: attributeSourceForField(field),
+    });
   }
 
-  return attrs;
+  return rankAttributesForSlots(attrs);
 }
 
 /**
@@ -179,6 +253,9 @@ export async function runFormatting(
   let resolvedManufacturer: { name: string; sourceKey: string } | null | undefined;
   let sourceUrl: string | undefined;
   let referenceUrls: string[] | undefined;
+  let productImageUrl: string | null | undefined;
+  let alternateImageUrls: string[] | undefined;
+  let specSheetUrl: string | null | undefined;
 
   if (
     inputOrFields &&
@@ -193,14 +270,21 @@ export async function runFormatting(
     resolvedManufacturer = typed.resolvedManufacturer;
     sourceUrl = typed.sourceUrl;
     referenceUrls = typed.referenceUrls;
+    productImageUrl = typed.productImageUrl;
+    alternateImageUrls = typed.alternateImageUrls;
+    specSheetUrl = typed.specSheetUrl;
   } else {
     // Legacy positional call: runFormatting(fields, officialSourceData?)
     normalizedFields = inputOrFields as Record<string, ExtractedField>;
-    officialSourceData = officialSourceDataLegacy;
+    officialSourceData = officialSourceDataLegacy as Record<string, string> | undefined;
   }
 
   const schema = loadDeliverySchema();
   const sourceRow = rowFromFields(normalizedFields);
+  sourceRow.E1_Brand = resolvedBrand?.name ?? "";
+  sourceRow.Unilog_Brand = resolvedBrand?.name ?? "";
+  sourceRow.DIB_Brand = resolvedBrand?.name ?? "";
+  sourceRow.Part_Manuf = resolvedManufacturer?.name ?? "";
 
   // Build dynamic, category-specific attribute list from LLM schema fields
   const schemaFields = classificationResult?.schema_fields ?? [];
@@ -216,6 +300,8 @@ export async function runFormatting(
     extraAttributes,        // Fully dynamic, category-specific, from LLM
     officialSourceData,
     officialAssetsFound: Boolean(
+      productImageUrl ||
+      (alternateImageUrls?.length ?? 0) > 0 ||
       officialSourceData?.["Product Image"] ||
       officialSourceData?.["Alternate Image 1"]
     ),
@@ -250,19 +336,24 @@ export async function runFormatting(
     formatted.record["TRADE_NAME"] = formatted.record["BRAND_NAME"];
   }
 
-  // Derive SKU from MPN when no separate internal SKU is assigned.
-  // Small-distributor catalogs commonly use MPN as SKU — this is a
-  // reasonable, frequently-correct default rather than leaving the field blank.
-  // NOTE: there is currently no companion provenance/source column in the
-  // delivery schema to explicitly flag this as derived; if the schema gains
-  // one (e.g. SKU_SOURCE), set it to "mpn_fallback" here.
-  if (!formatted.record["SKU"] && formatted.record["Mfg_Part_Num"]) {
-    formatted.record["SKU"] = formatted.record["Mfg_Part_Num"];
-  }
-
   if (sourceUrl) {
     formatted.record["MFR URL"] = sourceUrl;
     formatted.record["Ref URL 1"] = sourceUrl;
+  }
+
+  if (productImageUrl) {
+    formatted.record["Product Image"] = productImageUrl;
+    formatted.record["Actual Image (Yes/No)"] = "Yes";
+  }
+
+  if (alternateImageUrls?.length) {
+    alternateImageUrls.slice(0, 4).forEach((url, i) => {
+      formatted.record[`Alternate Image ${i + 1}`] = url;
+    });
+  }
+
+  if (specSheetUrl) {
+    formatted.record["Specification Sheet"] = specSheetUrl;
   }
 
   // Populate Ref URL 2-5 from enrichment's additional candidate URLs.
@@ -300,7 +391,7 @@ export async function runFormatting(
       ].join("\n");
 
       const raw = await callGroq(marketingPrompt, "");
-      const parsed = parseJsonResponse(raw);
+      const parsed = parseJsonResponse<{ marketing_description?: string }>(raw);
       marketingDescription = String(parsed?.marketing_description ?? "").trim();
     } catch {
       // Non-fatal: marketing_description stays empty on failure
@@ -326,6 +417,11 @@ export async function runFormatting(
     if (parts.length >= 1) formatted.record.Dept = parts[0];
     if (parts.length >= 2) formatted.record.Class = parts[1];
     if (parts.length >= 3) formatted.record.Fine = parts[2];
+  } else {
+    formatted.record.Classpath = "";
+    formatted.record.Dept = "";
+    formatted.record.Class = "";
+    formatted.record.Fine = "";
   }
   
   if (resolvedBrand?.name) {
@@ -335,10 +431,17 @@ export async function runFormatting(
     formatted.record.E1_Brand = resolvedBrand.name;
     formatted.record.Unilog_Brand = resolvedBrand.name;
     formatted.record.DIB_Brand = resolvedBrand.name;
+  } else {
+    formatted.record.BRAND_NAME = "";
+    formatted.record.E1_Brand = "";
+    formatted.record.Unilog_Brand = "";
+    formatted.record.DIB_Brand = "";
   }
   
   if (resolvedManufacturer?.name) {
     formatted.record.MANUFACTURER_NAME = resolvedManufacturer.name;
+  } else {
+    formatted.record.MANUFACTURER_NAME = "";
   }
 
   return {
