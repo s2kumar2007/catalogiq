@@ -183,6 +183,8 @@ async function processSingleProduct(
     );
   }
 
+  console.log(`[batch-debug] MPN=${mpn} manufForEnrich="${manuf}" officialDataFound=${enrichmentResult?.officialDataFound}`);
+
   // ── 6. Normalization ──────────────────────────────────────────────────────
   let normalizationResult = null;
   if (!isUnverified) {
@@ -206,6 +208,7 @@ async function processSingleProduct(
         officialSourceData:   enrichmentResult?.extractedAttributes ?? undefined,
         resolvedBrand:        finalBrand,
         resolvedManufacturer: finalBrand,
+        sourceUrl:            enrichmentResult?.sourceUrl,
       });
     } catch (err) {
       pipelineWarnings.push(
@@ -225,6 +228,7 @@ async function processSingleProduct(
     normalization_result:  normalizationResult,
     delivery_formats:      formattingResult?.delivery_formats ?? null,
     delivery_record:       formattingResult?.delivery_record   ?? null,
+    delivery_columns:      formattingResult?.delivery_columns  ?? [],
     is_unverified:         isUnverified,
     pipeline_warnings:     pipelineWarnings,
     brand_discovery:       brandDiscoveryResult ?? null,
@@ -248,6 +252,8 @@ export async function POST(req: NextRequest) {
   }
 
   const { products, batch_id = `batch-${Date.now()}`, categoryHint = "auto" } = body;
+
+  console.log(`[batch-debug] TAVILY_API_KEY is loaded: ${!!process.env.TAVILY_API_KEY}`);
 
   console.log(
     "Backend received products in process-batch route:",

@@ -35,11 +35,13 @@ export interface FormattingInput {
   /** Full classification result from classify.ts (provides schema_fields and classpath) */
   classificationResult?: ClassificationResult;
   /** Official manufacturer source data (from enrich.ts) */
-  officialSourceData?: Partial<UnilogDeliveryRecord>;
+  officialSourceData?: Record<string, string>;
   /** The real brand filtered from distributors (from pipeline-utils.ts) */
   resolvedBrand?: { name: string; sourceKey: string } | null;
   /** The real manufacturer filtered from distributors (from pipeline-utils.ts) */
   resolvedManufacturer?: { name: string; sourceKey: string } | null;
+  /** Source URL found during enrichment (from enrich.ts) */
+  sourceUrl?: string;
 }
 
 export interface FormattingResult {
@@ -47,6 +49,28 @@ export interface FormattingResult {
   delivery_record: UnilogDeliveryRecord;
   delivery_columns: string[];
   trace: Record<string, unknown>;
+}
+
+function mergeEnrichmentSpecsIntoFields(
+  normalizedFields: Record<string, ExtractedField>,
+  enrichmentSpecs: Record<string, string> | undefined
+): Record<string, ExtractedField> {
+  if (!enrichmentSpecs) return normalizedFields;
+  const merged = { ...normalizedFields };
+  for (const [specKey, specValue] of Object.entries(enrichmentSpecs)) {
+    if (!specValue) continue;
+    const normKey = specKey.toLowerCase().replace(/\s+/g, "_");
+    // Don't overwrite an existing extracted/normalized value - extraction 
+    // from the actual product listing takes priority over enrichment, since 
+    // enrichment is a fallback source, not the primary one
+    if (merged[normKey] || merged[specKey]) continue;
+    merged[specKey] = {
+      value: specValue,
+      confidence: 70, // enrichment-sourced values get moderate confidence
+      source: "enrichment",
+    } as ExtractedField;
+  }
+  return merged;
 }
 
 /**
@@ -131,9 +155,10 @@ export async function runFormatting(
   // Handle both call signatures for backwards compatibility
   let normalizedFields: Record<string, ExtractedField>;
   let classificationResult: ClassificationResult | undefined;
-  let officialSourceData: Partial<UnilogDeliveryRecord> | undefined;
+  let officialSourceData: Record<string, string> | undefined;
   let resolvedBrand: { name: string; sourceKey: string } | null | undefined;
   let resolvedManufacturer: { name: string; sourceKey: string } | null | undefined;
+  let sourceUrl: string | undefined;
 
   if (
     inputOrFields &&
@@ -146,6 +171,7 @@ export async function runFormatting(
     officialSourceData = typed.officialSourceData;
     resolvedBrand = typed.resolvedBrand;
     resolvedManufacturer = typed.resolvedManufacturer;
+    sourceUrl = typed.sourceUrl;
   } else {
     // Legacy positional call: runFormatting(fields, officialSourceData?)
     normalizedFields = inputOrFields as Record<string, ExtractedField>;
@@ -157,7 +183,11 @@ export async function runFormatting(
 
   // Build dynamic, category-specific attribute list from LLM schema fields
   const schemaFields = classificationResult?.schema_fields ?? [];
-  const extraAttributes = buildExtraAttributes(schemaFields, normalizedFields);
+  const fieldsForAttributes = mergeEnrichmentSpecsIntoFields(
+    normalizedFields,
+    officialSourceData
+  );
+  const extraAttributes = buildExtraAttributes(schemaFields, fieldsForAttributes);
 
   const formatted = buildUnilogDeliveryRecord(sourceRow, {
     columns: schema.columns,
@@ -182,6 +212,11 @@ export async function runFormatting(
     if (label && value) {
       attributes.push(`${label} = ${value}${uom ? ` ${uom}` : ""}`);
     }
+  }
+
+  if (sourceUrl) {
+    formatted.record["MFR URL"] = sourceUrl;
+    formatted.record["Ref URL 1"] = sourceUrl;
   }
 
   // Override regex-fallback classpath/brand/manufacturer with the correct 

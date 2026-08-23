@@ -51,8 +51,6 @@ function looksLikeDistributor(name: string): boolean {
  *     containing "brand"), provided confidence ≥ 50.
  *  3. A manufacturer-keyed field (keys containing "manuf") — ONLY if the
  *     value does NOT look like a distributor/cooperative name.
- *  4. Fallback: whatever manufacturer-keyed field exists, even if it looks
- *     like a distributor (enrichment will fail gracefully with a clear status).
  *
  * Returns { name, sourceKey } so the caller can log which field was used.
  */
@@ -96,12 +94,6 @@ export function resolveBrandForEnrichment(
     if (val && !looksLikeDistributor(val)) {
       return { name: val, sourceKey: k };
     }
-  }
-
-  // ── Priority 4: last resort — use whatever manufacturer key exists ─────────
-  for (const k of manufKeys) {
-    const val = String(fields[k].value ?? "").trim();
-    if (val) return { name: val, sourceKey: k };
   }
 
   return null;

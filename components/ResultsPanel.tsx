@@ -104,7 +104,7 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
               {r.conf && (
                 <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#565D6B" }}>
-                  {r.conf}% confidence
+                  {r.conf}% category conf
                 </span>
               )}
               <span

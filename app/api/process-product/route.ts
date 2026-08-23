@@ -380,6 +380,7 @@ export async function POST(req: NextRequest) {
         officialSourceData: enrichmentResult?.officialDataFound ? enrichmentResult.extractedAttributes : undefined,
         resolvedBrand: finalBrand,
         resolvedManufacturer: finalBrand,
+        sourceUrl: enrichmentResult?.sourceUrl,
       });
     } catch (err) {
       pipelineWarnings.push(`Formatting failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -399,6 +400,9 @@ export async function POST(req: NextRequest) {
       classification_result: classificationResult,
       normalization_result: normalizationResult,
       formatting_result:    formattingResult,
+      delivery_formats:     formattingResult?.delivery_formats ?? null,
+      delivery_record:      formattingResult?.delivery_record ?? null,
+      delivery_columns:     formattingResult?.delivery_columns ?? [],
       brand_discovery:      brandDiscoveryResult ?? null,
       is_unverified:        isUnverified,
       pipeline_warnings:    pipelineWarnings,
