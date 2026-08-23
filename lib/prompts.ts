@@ -530,6 +530,12 @@ OUTPUT REQUIREMENTS:
 2. Product Title / Short Desc: The standard product title, incorporating key specifications.
 3. Long Description: A full sentence/paragraph description including all relevant specifications.
 4. Attributes: A semicolon-separated list of key-value pairs (e.g. "Series = Professional Series; Mounting = Leg; Wash Cycles = 5").
+5. Marketing Description: A promotional-toned, buyer-focused description built EXCLUSIVELY from the provided field values.
+   - Tone: more engaging and benefit-oriented than Long Description, but still factual — no invented claims, superlatives, or features not present in the data (e.g. do not say "best-in-class" unless a verified award/certification field explicitly supports it).
+   - Length: 150–300 characters. (NOTE: This limit is a pipeline default assumption — verify against UNILOG_INTERNAL_CONTENT_GUIDELINES.docx if available.)
+   - If fewer than 4 distinct fields were resolved (i.e. there is not enough real data to write a genuinely differentiated marketing description), return an EMPTY STRING ("") for marketing_description. Empty is honest; filler is not.
+   - Never pad with generic phrases like "high quality", "perfect for any job", or "a great choice" when no real data supports them.
 
 Return ONLY valid JSON matching the DeliveryFormats schema.
 `.trim();
+

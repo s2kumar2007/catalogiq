@@ -61,9 +61,21 @@ export default function Page() {
           return;
         }
 
-        const products = filtered.map(r => ({
-          raw_text: `${r.Mfg_Part_Num || ""} ${r.Part_Manuf || ""} ${r.Part_Desc || ""}`.trim()
-        }));
+        const products = filtered.map(r => {
+          const mpn = (r.Mfg_Part_Num ?? r.MANUFACTURER_PART_NUMBER ?? "").trim();
+          const desc = (r.Part_Desc ?? "").trim();
+          const manuf = (r.Part_Manuf ?? r.MANUFACTURER_NAME ?? "").trim();
+          const brand = (r.E1_Brand ?? "").trim();
+
+          const raw_text = [
+            mpn ? `Part Number: ${mpn}` : null,
+            desc ? `Description: ${desc}` : null,
+            brand ? `Brand: ${brand}` : null,
+            manuf ? `Manufacturer: ${manuf}` : null,
+          ].filter(Boolean).join("\n");
+
+          return { raw_text };
+        });
 
         try {
           const res = await fetch("/api/process-batch", {

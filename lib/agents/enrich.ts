@@ -30,6 +30,10 @@ export interface EnrichmentResult {
   sourceUrl?: string;
   discoveredDomain?: string;
   extractedAttributes?: Record<string, string>;
+  /** Additional candidate URLs from search results that weren't chosen as the
+   *  primary official source, but are still real relevant pages (retailer
+   *  listings, spec sheets, etc.) suitable for Ref URL 2-5 slots. */
+  referenceUrls?: string[];
 }
 
 // In-memory cache: manufacturer name → discovered domain (or null = tried,
@@ -49,9 +53,9 @@ const domainDiscoveryCache = new Map<string, string | null>();
  */
 async function discoverManufacturerDomain(
   manufacturerName: string
-): Promise<string | null> {
+): Promise<{ domain: string | null; candidateUrls: string[] }> {
   if (domainDiscoveryCache.has(manufacturerName)) {
-    return domainDiscoveryCache.get(manufacturerName)!;
+    return { domain: domainDiscoveryCache.get(manufacturerName)!, candidateUrls: [] };
   }
 
   const apiKey = process.env.TAVILY_API_KEY;
@@ -71,11 +75,14 @@ async function discoverManufacturerDomain(
 
     if (!response.ok) {
       domainDiscoveryCache.set(manufacturerName, null);
-      return null;
+      return { domain: null, candidateUrls: [] };
     }
 
     const json = await response.json();
     const results: any[] = json?.results ?? [];
+
+    // Track all non-blocked candidate URLs as potential reference material
+    const candidateUrls: string[] = [];
 
     for (const r of results) {
       let hostname: string;
@@ -91,6 +98,9 @@ async function discoverManufacturerDomain(
         continue;
       }
 
+      // Collect as a candidate reference URL before verifying officialness
+      candidateUrls.push(r.url);
+
       // Step 2: positive-verification via Groq
       const pageSnippet = `${r.title ?? ""} ${r.content ?? ""}`;
       const verification = await verifyOfficialManufacturerDomain(hostname, manufacturerName, pageSnippet);
@@ -104,16 +114,16 @@ async function discoverManufacturerDomain(
 
       if (accepted) {
         domainDiscoveryCache.set(manufacturerName, hostname);
-        return hostname;
+        return { domain: hostname, candidateUrls };
       }
     }
 
     domainDiscoveryCache.set(manufacturerName, null);
-    return null;
+    return { domain: null, candidateUrls };
   } catch (err) {
     console.error("[enrich] Domain discovery error:", err);
     domainDiscoveryCache.set(manufacturerName, null);
-    return null;
+    return { domain: null, candidateUrls: [] };
   }
 }
 
@@ -135,7 +145,7 @@ function validateDomain(url: string, expectedDomain: string): boolean {
 async function searchProductOnDomain(
   domain: string,
   partNumber: string
-): Promise<{ url: string | null; rawContent: string | null }> {
+): Promise<{ url: string | null; rawContent: string | null; extraUrls: string[] }> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error("TAVILY_API_KEY not set");
 
@@ -162,14 +172,16 @@ async function searchProductOnDomain(
     const results: any[] = json?.results ?? [];
 
     if (results.length === 0) {
-      return { url: null, rawContent: null };
+      return { url: null, rawContent: null, extraUrls: [] };
     }
 
     const best = results[0];
-    return { url: best?.url ?? null, rawContent: best?.content ?? null };
+    // Collect remaining results as supplementary reference URLs
+    const extraUrls = results.slice(1).map((r: any) => r.url).filter(Boolean);
+    return { url: best?.url ?? null, rawContent: best?.content ?? null, extraUrls };
   } catch (err) {
     console.error("[enrich] Product search error:", err);
-    return { url: null, rawContent: null };
+    return { url: null, rawContent: null, extraUrls: [] };
   }
 }
 
@@ -214,21 +226,21 @@ export async function runEnrichment(input: EnrichmentInput): Promise<EnrichmentR
   }
 
   // 1. Dynamically discover the manufacturer's official domain
-  const discoveredDomain = await discoverManufacturerDomain(normalizedManuf);
+  const { domain: discoveredDomain, candidateUrls: discoveryCandidateUrls } =
+    await discoverManufacturerDomain(normalizedManuf);
 
   // Failure mode A: no plausible official domain found
   if (!discoveredDomain) {
     return {
       officialDataFound: false,
       status: `needs review - could not discover an official domain for manufacturer: "${normalizedManuf}"`,
+      referenceUrls: discoveryCandidateUrls.slice(0, 4),
     };
   }
 
   // 2. Search for the specific product page on that domain
-  const { url: candidateUrl, rawContent } = await searchProductOnDomain(
-    discoveredDomain,
-    partNumber
-  );
+  const { url: candidateUrl, rawContent, extraUrls: productExtraUrls } =
+    await searchProductOnDomain(discoveredDomain, partNumber);
 
   // Failure mode B: zero product-page results
   if (!candidateUrl) {
@@ -236,6 +248,7 @@ export async function runEnrichment(input: EnrichmentInput): Promise<EnrichmentR
       officialDataFound: false,
       status: `needs review - live search returned no results on ${discoveredDomain} for part "${partNumber}"`,
       discoveredDomain,
+      referenceUrls: discoveryCandidateUrls.slice(0, 4),
     };
   }
 
@@ -255,11 +268,18 @@ export async function runEnrichment(input: EnrichmentInput): Promise<EnrichmentR
   }
 
   // All checks passed — official URL discovered and verified
+  // Build reference URL list: remaining on-domain results + discovery candidates,
+  // deduplicated and excluding the primary sourceUrl. Up to 4 total.
+  const allCandidates = [...productExtraUrls, ...discoveryCandidateUrls]
+    .filter((u) => u && u !== candidateUrl);
+  const referenceUrls = [...new Set(allCandidates)].slice(0, 4);
+
   const result: EnrichmentResult = {
     officialDataFound: true,
     status: `success - official domain discovered and verified (${discoveredDomain})`,
     sourceUrl: candidateUrl,
     discoveredDomain,
+    referenceUrls: referenceUrls.length > 0 ? referenceUrls : undefined,
   };
 
   if (rawContent) {

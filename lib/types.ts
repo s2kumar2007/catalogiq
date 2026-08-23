@@ -232,7 +232,7 @@ export interface DeliveryFormats {
   /** Whether fixed source-only fields were retrieved or intentionally left blank. */
   fixed_block_status?: unknown;
   /** Optional marketing copy, if applicable. */
-  marketing_copy?: string;
+  marketing_description?: string;
   /** Optional POS/till receipt description, if applicable. */
   till_receipt?: string;
 }

@@ -10,7 +10,7 @@ const filtered = rows.filter(r => (r.Part_Manuf || "").toLowerCase().includes(mf
 
 const products = filtered.map(r => ({
   raw_text: `${r.Mfg_Part_Num || ""} ${r.Part_Manuf || ""} ${r.Part_Desc || ""}`.trim()
-})).slice(0, 2);
+})).slice(0, 10);
 
 console.log(`Sending ${products.length} products...`);
 

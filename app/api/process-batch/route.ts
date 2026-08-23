@@ -173,6 +173,7 @@ async function processSingleProduct(
     try {
       enrichmentResult = await runEnrichment({ manufacturerName: manuf, partNumber: mpn });
     } catch (err) {
+      console.error(`[batch-enrich-error] MPN=${mpn} | Full error:`, err);
       pipelineWarnings.push(
         `Enrichment failed: ${err instanceof Error ? err.message : String(err)}`
       );
@@ -183,7 +184,7 @@ async function processSingleProduct(
     );
   }
 
-  console.log(`[batch-debug] MPN=${mpn} manufForEnrich="${manuf}" officialDataFound=${enrichmentResult?.officialDataFound}`);
+  console.log(`[diag] MPN=${mpn} | resolveBrand=${brandResolved?.name ?? "null"} (${brandResolved?.sourceKey ?? "-"}) | discoveryRan=${!brandResolved} | discoveryResult=${brandDiscoveryResult?.discovered ?? "n/a"} (${brandDiscoveryResult?.confidence ?? "-"}) | finalBrand=${finalBrand?.name ?? "null"} | manufForEnrich="${manuf}" | enrichAttempted=${!!manuf && !!mpn} | officialDataFound=${enrichmentResult?.officialDataFound ?? "n/a"} | domainFound=${enrichmentResult?.discoveredDomain ?? "n/a"} | specsFound=${enrichmentResult?.extractedAttributes ? Object.keys(enrichmentResult.extractedAttributes).length : 0}`);
 
   // ── 6. Normalization ──────────────────────────────────────────────────────
   let normalizationResult = null;
@@ -209,6 +210,7 @@ async function processSingleProduct(
         resolvedBrand:        finalBrand,
         resolvedManufacturer: finalBrand,
         sourceUrl:            enrichmentResult?.sourceUrl,
+        referenceUrls:        enrichmentResult?.referenceUrls,
       });
     } catch (err) {
       pipelineWarnings.push(

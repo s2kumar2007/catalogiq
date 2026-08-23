@@ -381,6 +381,7 @@ export async function POST(req: NextRequest) {
         resolvedBrand: finalBrand,
         resolvedManufacturer: finalBrand,
         sourceUrl: enrichmentResult?.sourceUrl,
+        referenceUrls: enrichmentResult?.referenceUrls,
       });
     } catch (err) {
       pipelineWarnings.push(`Formatting failed: ${err instanceof Error ? err.message : String(err)}`);

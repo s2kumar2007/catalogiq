@@ -247,10 +247,13 @@ async function main() {
         });
         console.log(`  → enrich: ${enrichmentResult.officialDataFound ? "✓" : "✗"} ${enrichmentResult.status}`);
       } catch (err) {
+        console.error(`[batch-enrich-error] MPN=${mpn} | Full error:`, err);
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`  → enrich: error — ${msg}`);
         enrichmentResult = { officialDataFound: false, status: `needs review - enrichment threw: ${msg}` };
       }
+
+      console.log(`[diag] MPN=${mpn} | resolveBrand=${brandResolved?.name ?? "null"} (${brandResolved?.sourceKey ?? "-"}) | discoveryRan=${!brandResolved} | discoveryResult=${brandDiscoveryResult?.discovered ?? "n/a"} (${brandDiscoveryResult?.confidence ?? "-"}) | finalBrand=${finalBrand?.name ?? "null"} | manufForEnrich="${manufForEnrich}" | enrichAttempted=${!!manufForEnrich && !!mpnForEnrich} | officialDataFound=${enrichmentResult?.officialDataFound ?? "n/a"} | domainFound=${enrichmentResult?.discoveredDomain ?? "n/a"} | specsFound=${enrichmentResult?.extractedAttributes ? Object.keys(enrichmentResult.extractedAttributes).length : 0}`);
 
       // ── Stage 4: Normalize ───────────────────────────────────────────────
       const normResult = await runNormalization(extractResult.extracted_fields);

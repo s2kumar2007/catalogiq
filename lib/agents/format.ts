@@ -22,6 +22,8 @@
 
 import { DeliveryFormats, ExtractedField, UnilogDeliveryRecord } from "@/lib/types";
 import type { ClassificationResult, SchemaField } from "@/lib/agents/classify";
+import { callGroq, parseJsonResponse } from "@/lib/groq";
+import { FORMATTING_SYSTEM_PROMPT } from "@/lib/prompts";
 
 const {
   buildUnilogDeliveryRecord,
@@ -42,6 +44,8 @@ export interface FormattingInput {
   resolvedManufacturer?: { name: string; sourceKey: string } | null;
   /** Source URL found during enrichment (from enrich.ts) */
   sourceUrl?: string;
+  /** Additional candidate URLs from enrichment to populate Ref URL 2-5 */
+  referenceUrls?: string[];
 }
 
 export interface FormattingResult {
@@ -138,6 +142,21 @@ function buildExtraAttributes(
 }
 
 /**
+ * Converts up to 20 resolved attributes into short "Label: Value [UOM]" feature
+ * strings for the ITEM_FEATURES_N delivery columns.
+ * Duplication with SHORT_DESC/LONG_DESC1 is acceptable — these are a supplementary
+ * structured list, not a deduplication target.
+ */
+function buildItemFeatures(
+  attrs: { label: string; value: string; uom: string }[]
+): string[] {
+  return attrs
+    .filter((a) => a.value)
+    .slice(0, 20)
+    .map((a) => a.uom ? `${a.label}: ${a.value} ${a.uom}` : `${a.label}: ${a.value}`);
+}
+
+/**
  * Runs delivery formatting for a single product.
  * Accepts the full pipeline context: normalized fields + classification result.
  */
@@ -159,6 +178,7 @@ export async function runFormatting(
   let resolvedBrand: { name: string; sourceKey: string } | null | undefined;
   let resolvedManufacturer: { name: string; sourceKey: string } | null | undefined;
   let sourceUrl: string | undefined;
+  let referenceUrls: string[] | undefined;
 
   if (
     inputOrFields &&
@@ -172,6 +192,7 @@ export async function runFormatting(
     resolvedBrand = typed.resolvedBrand;
     resolvedManufacturer = typed.resolvedManufacturer;
     sourceUrl = typed.sourceUrl;
+    referenceUrls = typed.referenceUrls;
   } else {
     // Legacy positional call: runFormatting(fields, officialSourceData?)
     normalizedFields = inputOrFields as Record<string, ExtractedField>;
@@ -214,9 +235,80 @@ export async function runFormatting(
     }
   }
 
+  // Populate ITEM_FEATURES_N slots from the same extraAttributes list
+  const features = buildItemFeatures(extraAttributes);
+  features.forEach((f, i) => {
+    formatted.record[`ITEM_FEATURES_${i + 1}`] = f;
+  });
+
+  // Derive TRADE_NAME: Brand + Series when available, Brand alone as fallback.
+  // Fallback is a reasonable catalog default — brand name serves as trade name
+  // when no distinct product series exists; not an invented value.
+  if (formatted.record["BRAND_NAME"] && normalizedFields.series?.value) {
+    formatted.record["TRADE_NAME"] = `${formatted.record["BRAND_NAME"]} ${normalizedFields.series.value}`;
+  } else if (formatted.record["BRAND_NAME"]) {
+    formatted.record["TRADE_NAME"] = formatted.record["BRAND_NAME"];
+  }
+
+  // Derive SKU from MPN when no separate internal SKU is assigned.
+  // Small-distributor catalogs commonly use MPN as SKU — this is a
+  // reasonable, frequently-correct default rather than leaving the field blank.
+  // NOTE: there is currently no companion provenance/source column in the
+  // delivery schema to explicitly flag this as derived; if the schema gains
+  // one (e.g. SKU_SOURCE), set it to "mpn_fallback" here.
+  if (!formatted.record["SKU"] && formatted.record["Mfg_Part_Num"]) {
+    formatted.record["SKU"] = formatted.record["Mfg_Part_Num"];
+  }
+
   if (sourceUrl) {
     formatted.record["MFR URL"] = sourceUrl;
     formatted.record["Ref URL 1"] = sourceUrl;
+  }
+
+  // Populate Ref URL 2-5 from enrichment's additional candidate URLs.
+  // These may be retailer listings or other pages — still useful reference
+  // material even if not the official manufacturer source.
+  if (referenceUrls?.length) {
+    referenceUrls.slice(0, 4).forEach((url, i) => {
+      formatted.record[`Ref URL ${i + 2}`] = url;
+    });
+  }
+
+  // ── Generate marketing_description via LLM ──────────────────────────────
+  // Uses the same FORMATTING_SYSTEM_PROMPT already shown to the formatting
+  // agent, extended with the marketing_description requirement.
+  // Only runs when ≥4 distinct field values are available (honesty threshold).
+  let marketingDescription = "";
+  const resolvedFieldCount = Object.values(fieldsForAttributes)
+    .filter((f) => String(f.value ?? "").trim()).length;
+
+  if (resolvedFieldCount >= 4) {
+    try {
+      const fieldSummary = Object.entries(fieldsForAttributes)
+        .filter(([, f]) => String(f.value ?? "").trim())
+        .map(([k, f]) => `${k}: ${f.value}`)
+        .join("\n");
+
+      const marketingPrompt = [
+        FORMATTING_SYSTEM_PROMPT,
+        "",
+        "TASK: Generate ONLY the marketing_description field.",
+        "Return JSON with a single key: { \"marketing_description\": \"...\" }",
+        "",
+        "PRODUCT FIELDS:",
+        fieldSummary,
+      ].join("\n");
+
+      const raw = await callGroq(marketingPrompt, "");
+      const parsed = parseJsonResponse(raw);
+      marketingDescription = String(parsed?.marketing_description ?? "").trim();
+    } catch {
+      // Non-fatal: marketing_description stays empty on failure
+    }
+  }
+
+  if (marketingDescription) {
+    formatted.record["MARKETING_DESCRIPTION"] = marketingDescription;
   }
 
   // Override regex-fallback classpath/brand/manufacturer with the correct 
@@ -251,6 +343,7 @@ export async function runFormatting(
       long_desc: formatted.record.LONG_DESC1,
       invoice_desc: formatted.record.INVOICE_DESC,
       retail_desc: formatted.record.RETAIL_DESC,
+      marketing_description: formatted.record.MARKETING_DESCRIPTION || undefined,
       attributes,
       attributes_string: attributes.join("; "),
       fixed_block_status: formatted.trace.fixed_block_status,
