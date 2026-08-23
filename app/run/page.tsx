@@ -164,7 +164,7 @@ export default function Page() {
           </div>
         )}
 
-        {status === "done" && <ResultsPanel mfr={mfr} rows={result ? mapToResultRows(result.products || []) : []} />}
+        {status === "done" && <ResultsPanel mfr={mfr} rows={result ? mapToResultRows(result.products || []) : []} rawProducts={result?.products || []} />}
       </div>
     </div>
   );

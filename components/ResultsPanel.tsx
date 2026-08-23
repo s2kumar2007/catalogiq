@@ -1,3 +1,5 @@
+import Papa from "papaparse";
+import * as XLSX from "xlsx";
 import StatCard from "./StatCard";
 import { labelStyle } from "./UploadArea";
 
@@ -13,23 +15,70 @@ export type ResultRow = {
 type Props = {
   mfr?: string;
   rows: ResultRow[]; // no default — must come from the real API response
+  rawProducts?: any[];
 };
 
-export default function ResultsPanel({ mfr, rows }: Props) {
+export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
   if (!rows || rows.length === 0) {
     return <p style={{ padding: 24, textAlign: "center", color: "#565D6B" }}>No results yet.</p>;
   }
-  const shown = mfr ? rows.filter((r) => r.brand.toLowerCase().includes(mfr.toLowerCase())) : rows;
+  const shown = rows;
   const enrichedCount = rows.filter((r) => r.status === "enriched").length;
   const flaggedCount = rows.filter((r) => r.status === "flagged").length;
 
+  const handleDownloadCsv = () => {
+    if (!rawProducts.length) return;
+    const deliveryRecords = rawProducts.map((p) => p.delivery_record).filter(Boolean);
+    const columns = rawProducts[0]?.delivery_columns || [];
+    const csv = Papa.unparse(deliveryRecords, { columns });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "catalogiq_results.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadExcel = () => {
+    if (!rawProducts.length) return;
+    const deliveryRecords = rawProducts.map((p) => p.delivery_record).filter(Boolean);
+    const columns = rawProducts[0]?.delivery_columns || [];
+    const ws = XLSX.utils.json_to_sheet(deliveryRecords, { header: columns });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Results");
+    XLSX.writeFile(wb, "catalogiq_results.xlsx");
+  };
+
+  const buttonStyle = {
+    fontFamily: "'Inter', sans-serif",
+    fontSize: 13,
+    fontWeight: 500,
+    color: "#E7E5DE",
+    background: "#12151A",
+    border: "1px solid #1F242B",
+    borderRadius: 8,
+    padding: "8px 16px",
+    cursor: rawProducts.length > 0 ? "pointer" : "not-allowed",
+    opacity: rawProducts.length > 0 ? 1 : 0.5,
+  };
+
   return (
     <div style={{ marginTop: 40 }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <StatCard label="Rows processed" value={rows.length} />
         <StatCard label="Enriched" value={enrichedCount} accent="#2DD4BF" />
         <StatCard label="Flagged unbranded" value={flaggedCount} accent="#F0A345" />
         <StatCard label="Errors" value={0} />
+        
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button style={buttonStyle} onClick={handleDownloadCsv} disabled={rawProducts.length === 0}>
+            Download CSV
+          </button>
+          <button style={buttonStyle} onClick={handleDownloadExcel} disabled={rawProducts.length === 0}>
+            Download Excel
+          </button>
+        </div>
       </div>
 
       <p style={labelStyle}>Results{mfr ? ` — filtered by "${mfr}"` : ""}</p>
