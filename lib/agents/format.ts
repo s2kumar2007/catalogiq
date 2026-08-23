@@ -444,6 +444,24 @@ export async function runFormatting(
     formatted.record.MANUFACTURER_NAME = "";
   }
 
+  // Copy document/asset links and data fields discovered by discoverDocumentLinks()
+  // and Country Of Origin / Warranty extracted by parseSpecsFromContent() into
+  // the delivery record. These keys must match the 252-column schema headers exactly.
+  const docFields = [
+    "Instruction/Installation Manual", "Service Manual", "Owners/User Manual",
+    "Line Drawing", "MTR", "RoHS", "Full Engineering Drawing", "Energy Star Guide",
+    "Technical Bulletin", "Submittal", "Compatibility Chart", "Size Chart",
+    "Product Label/Insert", "Video Link", "Video Link 1", "Country Of Origin",
+    "Warranty", "Warranty Information",
+  ];
+  if (officialSourceData) {
+    for (const field of docFields) {
+      if (officialSourceData[field]) {
+        formatted.record[field] = officialSourceData[field];
+      }
+    }
+  }
+
   return {
     delivery_formats: {
       mobile_desc: formatted.record.MOBILE_DESC,

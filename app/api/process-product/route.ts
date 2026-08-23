@@ -35,6 +35,9 @@ import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "@/lib/pipeli
 import { discoverBrandFromMPN }               from "@/lib/agents/discover-brand";
 import type { BrandDiscoveryResult }          from "@/lib/agents/discover-brand";
 import type { ExtractedField }        from "@/lib/types";
+import { canonicalizeName } from "@/lib/agents/normalize";
+import { matchManufacturer } from "@/lib/manufacturer-lookup";
+import { discoverDocumentLinks } from "@/lib/agents/discover-documents";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -345,12 +348,37 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const manuf = finalBrand?.name;
-  const mpn   = mpnResolved?.mpn;
+  const mpn = mpnResolved?.mpn;
+
+  let canonicalManufacturer = finalBrand?.name ?? "";
+  let manufacturerMatched = false;
+  if (finalBrand?.name) {
+    const lookup = matchManufacturer(finalBrand.name);
+    canonicalManufacturer = lookup.matched
+      ? lookup.name
+      : await canonicalizeName(finalBrand.name, "manufacturer");
+    manufacturerMatched = lookup.matched;
+  }
+
+  const manuf = canonicalManufacturer;
 
   if (manuf && mpn) {
     try {
       enrichmentResult = await runEnrichment({ manufacturerName: manuf, partNumber: mpn });
+
+      if (enrichmentResult.officialDataFound && enrichmentResult.discoveredDomain) {
+        const { links, videoLinks } = await discoverDocumentLinks(
+          enrichmentResult.discoveredDomain,
+          mpn,
+          manuf
+        );
+        enrichmentResult.extractedAttributes = {
+          ...enrichmentResult.extractedAttributes,
+          ...links,
+        };
+        if (videoLinks[0]) enrichmentResult.extractedAttributes["Video Link"] = videoLinks[0];
+        if (videoLinks[1]) enrichmentResult.extractedAttributes["Video Link 1"] = videoLinks[1];
+      }
     } catch (err) {
       pipelineWarnings.push(`Enrichment failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -364,19 +392,17 @@ export async function POST(req: NextRequest) {
 
   // ── 8. Normalization (Stage 6) ──────────────────────────────────────────────
   let normalizationResult = null;
-  if (!isUnverified) {
-    try {
-      normalizationResult = await runNormalization(finalExtractedFields);
-      // Update final fields with normalized values
-      finalExtractedFields = normalizationResult.normalized_fields;
-    } catch (err) {
-      pipelineWarnings.push(`Normalization failed: ${err instanceof Error ? err.message : String(err)}`);
-    }
+  try {
+    normalizationResult = await runNormalization(finalExtractedFields);
+    // Update final fields with normalized values
+    finalExtractedFields = normalizationResult.normalized_fields;
+  } catch (err) {
+    pipelineWarnings.push(`Normalization failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   // ── 9. Formatting (Stage 7) ────────────────────────────────────────────────
   let formattingResult = null;
-  if (!isUnverified && normalizationResult) {
+  if (normalizationResult) {
     try {
       formattingResult = await runFormatting({
         normalizedFields: finalExtractedFields,

@@ -38,7 +38,7 @@ function extractJson(text: string): string {
   return text;
 }
 
-async function canonicalizeName(
+export async function canonicalizeName(
   rawName: string,
   fieldType: "manufacturer" | "brand"
 ): Promise<string> {

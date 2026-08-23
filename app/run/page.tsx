@@ -18,16 +18,26 @@ function mapToResultRows(products: any[]): ResultRow[] {
       p.delivery_record?.BRAND_NAME ??
       normFields.brand?.value ??
       normFields.manufacturer?.value ??
-      "Needs brand review";
+      "";
+
+    const lowerBrand = brandValue.toLowerCase().trim();
+    const isUnbranded = !lowerBrand
+      || /^--\s*unbranded\s*--$/i.test(lowerBrand)
+      || /^unbranded$/i.test(lowerBrand)
+      || lowerBrand === "no brand"
+      || lowerBrand === "n/a"
+      || lowerBrand === "none"
+      || lowerBrand === "unknown"
+      || lowerBrand.startsWith("-- no ");
 
     return {
       part: mpn,
-      brand: brandValue,
+      brand: brandValue || "Unbranded",
       status: p.enrichment_result?.officialDataFound
         ? "enriched"
-        : p.resolved_brand?.brand_name
-          ? "resolved"
-          : "flagged",
+        : isUnbranded
+          ? "unbranded"
+          : "needs_review",
       conf: p.classification_result?.confidence ?? null,
     };
   });

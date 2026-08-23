@@ -8,7 +8,7 @@ import { labelStyle } from "./UploadArea";
 export type ResultRow = {
   part: string;
   brand: string;
-  status: "enriched" | "resolved" | "flagged";
+  status: "enriched" | "unbranded" | "needs_review";
   conf: number | null;
 };
 
@@ -57,8 +57,8 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
   }
   const shown = rows;
   const enrichedCount = rows.filter((r) => r.status === "enriched").length;
-  const resolvedCount = rows.filter((r) => r.status === "resolved").length;
-  const flaggedCount = rows.filter((r) => r.status === "flagged").length;
+  const unbrandedCount = rows.filter((r) => r.status === "unbranded").length;
+  const needsReviewCount = rows.filter((r) => r.status === "needs_review").length;
 
   const handleDownloadCsv = () => {
     if (!rawProducts.length) return;
@@ -100,8 +100,8 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
       <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap", alignItems: "center" }}>
         <StatCard label="Rows processed" value={rows.length} />
         <StatCard label="Enriched" value={enrichedCount} accent="#2DD4BF" />
-        <StatCard label="Brand resolved" value={resolvedCount} accent="#60A5FA" />
-        <StatCard label="Needs review" value={flaggedCount} accent="#F0A345" />
+        <StatCard label="Needs Review" value={needsReviewCount} accent="#F0A345" />
+        <StatCard label="Unbranded" value={unbrandedCount} accent="#94A3B8" />
         <StatCard label="Errors" value={0} />
         
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
@@ -148,10 +148,10 @@ export default function ResultsPanel({ mfr, rows, rawProducts = [] }: Props) {
                   padding: "4px 10px",
                   borderRadius: 5,
                   color: "#0A0C10",
-                  background: r.status === "enriched" ? "#2DD4BF" : r.status === "resolved" ? "#60A5FA" : "#F0A345",
+                  background: r.status === "enriched" ? "#2DD4BF" : r.status === "unbranded" ? "#94A3B8" : "#F0A345",
                 }}
               >
-                {r.status === "enriched" ? "Enriched" : r.status === "resolved" ? "Brand resolved" : "Needs review"}
+                {r.status === "enriched" ? "Enriched" : r.status === "unbranded" ? "Unbranded" : "Needs review"}
               </span>
             </div>
           </div>

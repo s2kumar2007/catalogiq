@@ -26,6 +26,9 @@ import { resolveBrandForEnrichment, resolveMpnForEnrichment } from "@/lib/pipeli
 import { discoverBrandFromMPN }               from "@/lib/agents/discover-brand";
 import type { BrandDiscoveryResult }          from "@/lib/agents/discover-brand";
 import { buildUnilogDeliveryRecord, loadDeliverySchema } from "@/lib/unilog-format";
+import { canonicalizeName } from "@/lib/agents/normalize";
+import { matchManufacturer } from "@/lib/manufacturer-lookup";
+import { discoverDocumentLinks } from "@/lib/agents/discover-documents";
 import type { ExtractedField }        from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -242,13 +245,38 @@ async function processSingleProduct(
     }
   }
 
-  const manuf = finalBrand?.name;
-  const mpn   = mpnResolved?.mpn;
+  const mpn = mpnResolved?.mpn;
+
+  let canonicalManufacturer = finalBrand?.name ?? "";
+  let manufacturerMatched = false;
+  if (finalBrand?.name) {
+    const lookup = matchManufacturer(finalBrand.name);
+    canonicalManufacturer = lookup.matched
+      ? lookup.name
+      : await canonicalizeName(finalBrand.name, "manufacturer");
+    manufacturerMatched = lookup.matched;
+  }
+
+  const manuf = canonicalManufacturer;
 
   // ── 6. Enrichment ────────────────────────────────────────────────────
   if (manuf && mpn) {
     try {
       enrichmentResult = await runEnrichment({ manufacturerName: manuf, partNumber: mpn });
+
+      if (enrichmentResult.officialDataFound && enrichmentResult.discoveredDomain) {
+        const { links, videoLinks } = await discoverDocumentLinks(
+          enrichmentResult.discoveredDomain,
+          mpn,
+          manuf
+        );
+        enrichmentResult.extractedAttributes = {
+          ...enrichmentResult.extractedAttributes,
+          ...links,
+        };
+        if (videoLinks[0]) enrichmentResult.extractedAttributes["Video Link"] = videoLinks[0];
+        if (videoLinks[1]) enrichmentResult.extractedAttributes["Video Link 1"] = videoLinks[1];
+      }
     } catch (err) {
       console.error(`[batch-enrich-error] MPN=${mpn} | Full error:`, err);
       pipelineWarnings.push(
@@ -261,7 +289,7 @@ async function processSingleProduct(
     );
   }
 
-  console.log(`[diag] MPN=${mpn} | resolveBrand=${brandResolved?.name ?? "null"} (${brandResolved?.sourceKey ?? "-"}) | discoveryRan=${!brandResolved} | discoveryResult=${brandDiscoveryResult?.discovered ?? "n/a"} (${brandDiscoveryResult?.confidence ?? "-"}) | finalBrand=${finalBrand?.name ?? "null"} | manufForEnrich="${manuf}" | enrichAttempted=${!!manuf && !!mpn} | officialDataFound=${enrichmentResult?.officialDataFound ?? "n/a"} | domainFound=${enrichmentResult?.discoveredDomain ?? "n/a"} | specsFound=${enrichmentResult?.extractedAttributes ? Object.keys(enrichmentResult.extractedAttributes).length : 0}`);
+  console.log(`[diag] MPN=${mpn} | resolveBrand=${brandResolved?.name ?? "null"} (${brandResolved?.sourceKey ?? "-"}) | discoveryRan=${!brandResolved} | discoveryResult=${brandDiscoveryResult?.discovered ?? "n/a"} (${brandDiscoveryResult?.confidence ?? "-"}) | finalBrand=${finalBrand?.name ?? "null"} | manufForEnrich="${manuf}" | enrichAttempted=${!!manuf && !!mpn} | officialDataFound=${enrichmentResult?.officialDataFound ?? "n/a"} | domainFound=${enrichmentResult?.discoveredDomain ?? "n/a"} | specsFound=${enrichmentResult?.extractedAttributes ? Object.keys(enrichmentResult.extractedAttributes).length : 0} | manufacturerMatched=${manufacturerMatched}`);
 
   // ── 6. Normalization ──────────────────────────────────────────────────────
   let normalizationResult = null;
