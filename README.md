@@ -1,85 +1,62 @@
 # CatalogIQ
-
-CatalogIQ is a Unilog product-content enrichment prototype. It turns messy
-industrial catalogue rows into the provided Unilog delivery format while keeping
-the process measurable and traceable.
-
-## Unilog Batch Solution
-
-The challenge materials say the reference documents are supporting resources,
-and that the important processing files are the input and expected output
-datasets in `Data/`. This repo therefore uses:
-
-- `Data/Unihack_ Sample Dataset - Input.csv` as the 1,000-row working input.
-- `Data/Unihack_ Expected Output - Delivery Format (1).csv` as the 252-column
-  delivery schema and available ground-truth example rows.
-
-Run the enrichment pipeline:
-
+ 
+CatalogIQ is a Unilog hackathon submission: an AI pipeline that turns messy industrial catalog rows into complete, standardized product records matching Unilog's exact 252-column delivery format.
+ 
+Raw distributor data is genuinely unusable as-is — cryptic descriptions ("PDSH4816AF Dishwasher SS"), placeholder brand fields ("-- Unbranded --"), and a "manufacturer" field that's often actually a distributor's name. CatalogIQ automates the cleanup, live, without fabricating data.
+ 
+## Architecture
+ 
+![CatalogIQ architecture diagram](docs/architecture.svg)
+ 
+Six real pipeline stages, all live, none mocked:
+ 
+1. **Classify** — an LLM reads the raw text and dynamically generates both the product's taxonomy classpath and the exact attribute schema that category needs — no static per-category templates.
+2. **Extract** — pulls real values from the description, distinguishing the actual brand mentioned in text from a distributor name sitting in a separate field.
+3. **Enrich** — when data is incomplete, runs a live web search (Tavily) to discover the manufacturer's real official domain, verifies it isn't a marketplace or reseller, then pulls genuine specs, images, and documents from their site.
+4. **Normalize** — canonicalizes brand names, standardizes units of measure, strips placeholder values.
+5. **Format** — assembles the full 252-column delivery record in Unilog's exact column order.
+6. **Validate / Score** — checks character-limit compliance, and reports accuracy split between blind rows (no known answer) and spot-checks (known ground-truth rows), with a leak-guard confirming no answer-key peeking.
+**Core rule:** if a fact can't be confidently verified from a real source, the field stays blank and the row is flagged for review. A wrong value is worse than an empty one.
+ 
+## Getting started
+ 
 ```bash
-node scripts/unilog-enrich.js
+git clone https://github.com/s2kumar2007/catalogiq.git
+cd catalogiq
+npm install
 ```
-
-Generated files:
-
-- `outputs/catalogiq_unilog_delivery.csv` - 1,000 enriched rows in the exact
-  delivery-column order.
-- `outputs/catalogiq_unilog_report.json` - run summary, format checks,
-  available ground-truth comparison, and trace samples.
-
-The implemented slice focuses on the highest-value, demonstrable parts of the
-problem statement:
-
-- Standardizes placeholder brand fields and manufacturer names.
-- Detects brands from noisy descriptions and manufacturer strings.
-- Learns category examples from the expected-output rows and auto-derives a
-  reviewable fallback category from the product text when no labelled example
-  exists in the provided data.
-- Extracts product type, size, grit, package quantity, and application signals.
-- Builds mobile, invoice, short, long, retail, and attribute fields.
-- Preserves the expected 252-column delivery schema for downstream submission.
-- Flags low-confidence or generic classifications for human review in the
-  report.
-
-The approach is intentionally schema-first: output columns and category fields
-come from the provided CSVs. The current repo only includes two labelled
-expected-output examples, so unseen categories are not forced into a fixed
-taxonomy; they are marked as auto-classified and routed to human review. With a
-larger expected-output file containing the 240+ or 1200+ category examples, the
-same learner can use those rows directly without adding category dropdowns or
-hardcoded category options.
-
-## Getting Started
-
-First, run the development server:
-
+ 
+Create `.env.local` with:
+ 
+```
+GROQ_API_KEY=your_key_here
+TAVILY_API_KEY=your_key_here
+```
+ 
+Run the web app:
+ 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+ 
+Or run the CLI batch pipeline directly:
+ 
+```bash
+npm run enrich -- --mfr=dishwasher
+```
+ 
+(`--mfr` filters the input dataset by a substring match on the description or manufacturer field — useful for testing against a small slice instead of the full 1,000-row dataset.)
+ 
+## Output
+ 
+- Web UI: upload a CSV or paste raw text, watch it classify and enrich live, download the result as CSV or Excel.
+- CLI: writes `outputs/catalogiq_unilog_delivery.csv` (enriched rows in the exact delivery-column order) and `outputs/catalogiq_unilog_report.json` (run summary, accuracy scoring, trace samples).
+## Data
+ 
+- `Data/Unihack_ Sample Dataset - Input.csv` — 1,000-row raw working input.
+- `Data/Unihack_ Expected Output - Delivery Format (1).csv` — the 252-column schema plus 2 labelled ground-truth rows, used for spot-check scoring.
+## Known limitations
+ 
+- Free-tier Groq and Tavily rate limits are the current bottleneck for scaling to the full 1,000-row dataset — a known, solvable next step, not a design flaw.
+- Digital assets (product images, spec sheet PDFs) and secondary fields (warranty, certifications) populate only where the manufacturer's own site actually publishes that data — coverage naturally varies by product category, and that unevenness is expected, honest behavior rather than a bug.
+- We prioritized depth on real categories over a shallow pass across all 1,000 rows, since proving accuracy matters more than raw row count.
